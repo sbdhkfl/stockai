@@ -1,6 +1,6 @@
 """Scenario engine and sensitivity grid tests."""
 import pytest
-from fairvalue.scenario import (DCFInputs, run_scenario, run_all_scenarios,
+from fairvalue.analysis.scenario import (DCFInputs, run_scenario, run_all_scenarios,
                                 sensitivity_grid, apply_scenario)
 from fairvalue.valuation.dcf import dcf_fcff
 from fairvalue.errors import FairValueError

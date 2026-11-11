@@ -6,7 +6,7 @@ screens, not calibrated probabilities (docs/RISK_METHODOLOGY.md).
 """
 from dataclasses import dataclass
 import math
-from .errors import FairValueError, NotSuitableError
+from ..errors import FairValueError, NotSuitableError
 
 Z_SAFE, Z_DISTRESS = 2.99, 1.81
 

@@ -4,8 +4,8 @@ Bear/base/bull deltas move together for internal consistency; terminal growth is
 re-clamped to WACC - 50bp after WACC shifts, and the clamp is recorded.
 """
 from dataclasses import dataclass
-from .valuation.dcf import dcf_fcff
-from .errors import FairValueError
+from ..valuation.dcf import dcf_fcff
+from ..errors import FairValueError
 
 
 @dataclass(frozen=True)

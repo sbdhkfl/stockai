@@ -7,7 +7,7 @@ Conventions:
 """
 from dataclasses import dataclass, field
 import math
-from .errors import FairValueError, NotMeaningfulError
+from ..errors import FairValueError, NotMeaningfulError
 
 
 def _avg(end: float, begin: float = None):

@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 
 from fairvalue.valuation.dcf import dcf_fcff
 from fairvalue.valuation.ddm import gordon_ddm
-from fairvalue.risk import altman_z
-from fairvalue.scenario import DCFInputs, run_all_scenarios, sensitivity_grid
+from fairvalue.analysis.risk import altman_z
+from fairvalue.analysis.scenario import DCFInputs, run_all_scenarios, sensitivity_grid
 from fairvalue.errors import FairValueError, NotMeaningfulError, NotSuitableError
 
 app = FastAPI(title="FAIRVALUE AI Financial Engine", version="0.1.0")

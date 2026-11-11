@@ -1,6 +1,6 @@
 """Multiples, SOTP, asset-based valuation tests."""
 import pytest
-from fairvalue.valuation.multiples import (median_multiple, implied_value_from_multiple,
+from fairvalue.valuation.comparables import (median_multiple, implied_value_from_multiple,
                                            ENTERPRISE, EQUITY)
 from fairvalue.valuation.sotp import sotp_value, Segment
 from fairvalue.valuation.asset_based import adjusted_nav, Adjustment

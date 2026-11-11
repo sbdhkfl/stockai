@@ -30,3 +30,30 @@ def adjusted_nav(book_equity: float, adjustments: list) -> dict:
     return {"adjusted_nav": total,
             "adjustments_applied": len(adjustments),
             "adjustments": adjustments}
+
+
+
+# ---------------------------------------------------------------------------
+# Contract adapter: ValuationInputs -> ModelResult
+# ---------------------------------------------------------------------------
+from ..core.schemas import ValuationInputs, AssetBasedAssumptions, ModelResult
+
+
+def run_model(inputs: ValuationInputs, a: AssetBasedAssumptions) -> ModelResult:
+    base = dict(assumptions=a.model_dump())
+    if not inputs.book_equity:
+        return ModelResult(model="asset_based", applicable=False,
+                           excluded_reason="book equity missing", **base)
+    if not inputs.shares_outstanding:
+        return ModelResult(model="asset_based", applicable=False,
+                           excluded_reason="shares outstanding missing", **base)
+    equity = inputs.book_equity + a.asset_adjustments - a.liability_adjustments
+    steps = [f"book equity {inputs.book_equity:,.0f} + asset adj {a.asset_adjustments:,.0f}"
+             f" - liability adj {a.liability_adjustments:,.0f} = {equity:,.0f}",
+             f"per share = {equity:,.0f} / {inputs.shares_outstanding:,.0f}"]
+    return ModelResult(model="asset_based", applicable=True,
+                       value_per_share=equity / inputs.shares_outstanding,
+                       equity_value=equity, **base,
+                       formula="adjusted NAV = book equity + asset adjustments - liability adjustments",
+                       steps=steps,
+                       limitations=["book values need fair-value audit; adjustments must be documented"])

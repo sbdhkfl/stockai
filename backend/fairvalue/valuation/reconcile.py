@@ -10,7 +10,7 @@ assumption uncertainty — explicitly NOT a statistically calibrated probability
 from dataclasses import dataclass
 import math
 import statistics
-from .errors import FairValueError
+from ..errors import FairValueError
 
 
 @dataclass(frozen=True)

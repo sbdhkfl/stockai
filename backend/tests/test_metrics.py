@@ -1,6 +1,6 @@
 """Metrics tests: hand-derived known answers + non-meaningful edge cases."""
 import pytest
-from fairvalue import metrics as M
+from fairvalue.analysis import metrics as M
 from fairvalue.errors import FairValueError, NotMeaningfulError
 
 

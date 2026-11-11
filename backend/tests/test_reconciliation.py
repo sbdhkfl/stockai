@@ -1,6 +1,6 @@
 """Reconciliation engine tests: suitability filtering, outlier handling, range logic."""
 import pytest
-from fairvalue.reconciliation import reconcile, ModelOutput
+from fairvalue.valuation.reconcile import reconcile, ModelOutput
 from fairvalue.errors import FairValueError
 
 

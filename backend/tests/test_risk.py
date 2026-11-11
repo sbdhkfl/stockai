@@ -1,6 +1,6 @@
 """Risk module tests: Altman Z known answer + applicability + deterministic flags."""
 import pytest
-from fairvalue.risk import altman_z, leverage_flags
+from fairvalue.analysis.risk import altman_z, leverage_flags
 from fairvalue.errors import FairValueError, NotSuitableError
 
 
