@@ -1,92 +1,92 @@
-"""Model reconciliation (docs/SCENARIO_ANALYSIS.md §interpretation, master §8).
+"""Model selection & reconciliation layer (Lead Architect owned).
 
-Never averages every model blindly:
-1. filter by suitability, 2. require data completeness, 3. flag outliers vs median
-(robust MAD), 4. explain spread, 5. emit a defensible range + confidence.
-
-Confidence here is a structured judgment over data quality, model suitability and
-assumption uncertainty — explicitly NOT a statistically calibrated probability.
+Policy (ARCHITECTURE.md §4.4 — "do not blindly average incompatible models"):
+1. applicability — models without required data are excluded with a reason;
+2. family grouping — income-based vs market-based vs asset-based estimates are
+   first aggregated *within* their family (suitability-weighted mean), because
+   models in a family share assumptions and failure modes;
+3. cross-family base — the reported base is the median of family values, so no
+   single family can dominate; low/high are the span of all applicable models;
+4. every weight, exclusion and family aggregate is written into the report.
 """
-from dataclasses import dataclass
-import math
-import statistics
-from ..errors import FairValueError
+
+from __future__ import annotations
+
+from statistics import median
+
+from fairvalue.core.schemas import ExcludedModel, ModelResult, Reconciliation
+
+MODEL_FAMILIES: dict[str, tuple[str, ...]] = {
+    "income": ("dcf", "ddm", "residual_income", "epv", "graham"),
+    "market": ("comparables", "precedents"),
+    "asset": ("asset_based", "sotp"),
+}
+
+FAMILY_LABELS = {
+    "income": "income-based (discounted future earnings/dividends)",
+    "market": "market-based (peer and transaction multiples)",
+    "asset": "asset-based (balance-sheet value)",
+}
 
 
-@dataclass(frozen=True)
-class ModelOutput:
-    model: str
-    value_per_share: float
-    suitable: bool = True
-    data_completeness: float = 1.0   # 0..1 share of required inputs present
-    notes: str = ""
+def reconcile(results: list[ModelResult]) -> Reconciliation:
+    included = [r for r in results if r.applicable and r.value_per_share is not None]
+    excluded = [
+        ExcludedModel(model=r.model, reason=r.excluded_reason or "not applicable")
+        for r in results
+        if not (r.applicable and r.value_per_share is not None)
+    ]
 
+    family_values: dict[str, float] = {}
+    notes: list[str] = []
+    for fam, members in MODEL_FAMILIES.items():
+        vals = [r for r in included if r.model in members]
+        if not vals:
+            continue
+        weights = [max(r.suitability, 1e-6) for r in vals]
+        total_w = sum(weights)
+        agg = sum(r.value_per_share * w for r, w in zip(vals, weights)) / total_w  # suitability-weighted mean
+        family_values[fam] = agg
+        notes.append(
+            f"{FAMILY_LABELS[fam]}: weighted mean of "
+            + ", ".join(f"{r.model} {r.value_per_share:,.2f} (w={r.suitability:.2f})" for r in vals)
+            + f" = {agg:,.2f}"
+        )
 
-def _median(xs):
-    return statistics.median(xs)
+    if not included:
+        return Reconciliation(
+            excluded=excluded,
+            method="no model applicable — no valuation range produced",
+            notes=["all models reported explicit missing-data exclusions; nothing was estimated in their place"],
+        )
 
+    values = [float(r.value_per_share) for r in included]
+    base = float(median(list(family_values.values()))) if family_values else float(median(values))
+    low, high = min(values), max(values)
 
-def _mad(xs, med):
-    devs = sorted(abs(x - med) for x in xs)
-    n = len(devs)
-    return devs[n // 2] if n % 2 else (devs[n//2-1] + devs[n//2]) / 2
-
-
-def reconcile(outputs: list, market_price: float = None,
-              outlier_mads: float = 2.5) -> dict:
-    if not outputs:
-        raise FairValueError("no model outputs provided")
-    suitable = [o for o in outputs if o.suitable
-                and math.isfinite(o.value_per_share) and o.data_completeness >= 0.7]
-    if not suitable:
-        raise FairValueError("no suitable, sufficiently complete model outputs; "
-                             "cannot produce a defensible valuation")
-
-    values = [o.value_per_share for o in suitable]
-    med = _median(values)
-    mad = _mad(values, med)
-    outliers, core = [], []
-    for o in suitable:
-        if mad > 0 and abs(o.value_per_share - med) > outlier_mads * mad:
-            outliers.append({"model": o.model, "value": o.value_per_share,
-                             "reason": f"> {outlier_mads} robust MADs from median"})
-        else:
-            core.append(o)
-
-    core_values = [o.value_per_share for o in core] or values
-    core_values.sort()
-    lo, hi = core_values[0], core_values[-1]
-
-    # Explain the spread rather than hide it.
-    spread_pct = (hi - lo) / abs(med) if med != 0 else None
-
-    # Confidence: data quality x suitability x assumption agreement.
-    mean_completeness = sum(o.data_completeness for o in core) / len(core)
-    if len(core) >= 3 and spread_pct is not None and spread_pct < 0.35:
-        agreement = "high"
-    elif spread_pct is not None and spread_pct < 0.75:
-        agreement = "moderate"
+    if len(family_values) >= 2:
+        method = (
+            "base = median of family aggregates (income/market/asset); "
+            "low/high = min/max of all applicable models"
+        )
+        fam_spread = max(family_values.values()) - min(family_values.values())
+        if fam_spread > 0.25 * base:
+            notes.append(
+                f"families disagree by {fam_spread:,.2f} ({fam_spread / base:.0%} of base) — "
+                "market pricing and intrinsic models are telling different stories; treat the range width as signal"
+            )
     else:
-        agreement = "low"
-    confidence = {
-        "data_completeness": round(mean_completeness, 3),
-        "model_agreement": agreement,
-        "caveat": "structured judgment over data quality, model suitability and "
-                  "assumption uncertainty; NOT a statistically calibrated probability",
-    }
-    if market_price is not None and lo <= market_price <= hi:
-        confidence["market_price_within_range"] = True
+        only = next(iter(family_values))
+        method = f"single family available ({only}): base = family aggregate; low/high = min/max of its models"
+        notes.append("only one model family produced values — the range reflects intra-family disagreement only")
 
-    return {
-        "fair_value_range": [lo, hi],
-        "median": med,
-        "models_used": [o.model for o in core],
-        "outliers_excluded": outliers,
-        "spread_pct": None if spread_pct is None else round(spread_pct, 4),
-        "confidence": confidence,
-        "explanation": (
-            f"{len(core)} suitable models agree within "
-            f"{round(spread_pct*100, 1) if spread_pct is not None else 'n/a'}% "
-            f"(median {round(med, 2)}); {len(outliers)} outlier(s) excluded and "
-            "reported for investigation, not silently dropped"),
-    }
+    return Reconciliation(
+        included=[r.model for r in included],
+        excluded=excluded,
+        family_values=family_values,
+        low=low,
+        base=base,
+        high=high,
+        method=method,
+        notes=notes,
+    )

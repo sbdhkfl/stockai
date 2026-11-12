@@ -76,17 +76,24 @@ class SourceRef(BaseModel):
 
 
 class Fact(BaseModel):
-    """One normalized financial number for one reporting period."""
+    """One normalized financial number for one reporting period.
+
+    ``basis`` distinguishes duration facts (flows: start+end, e.g. revenue for a
+    fiscal year) from instant facts (balances at ``period_end`` alone, e.g. cash).
+    ``accession``/``filed_at`` preserve the exact filing provenance for audit.
+    """
 
     concept: str
     value: float
     unit: str = "USD"
+    basis: Literal["duration", "instant"] = "instant"
     period_start: date | None = None
     period_end: date
     fiscal_year: int
     fiscal_period: FiscalPeriod = "FY"
     is_estimate: bool = False
     form: str | None = None
+    accession: str | None = None
     filed_at: datetime | None = None
     is_illustrative: bool = False
     source: SourceRef
@@ -114,9 +121,10 @@ class PeriodFinancials(BaseModel):
 
 class Fundamentals(BaseModel):
     company: CompanyProfile
-    periods: list[PeriodFinancials]  # ascending by fiscal_year
+    periods: list[PeriodFinancials]  # ascending by period_end
     missing_concepts: list[str] = Field(default_factory=list)
-    conflicts: list[str] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)  # restatements / cross-source disagreements
+    validation_errors: list[str] = Field(default_factory=list)  # structural statement checks
 
     def latest(self) -> PeriodFinancials | None:
         return self.periods[-1] if self.periods else None

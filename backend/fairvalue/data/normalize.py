@@ -58,6 +58,12 @@ TAG_MAP: dict[str, list[str]] = {
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     ],
+    # validation-only view: consolidated equity (parent + noncontrolling interests)
+    "equity_including_nci": [
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        "StockholdersEquity",
+    ],
+    "retained_earnings": ["RetainedEarningsAccumulatedDeficit"],
     "shares_outstanding": ["CommonStockSharesOutstanding", "CommonStockSharesIssued"],
     "eps_diluted": ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"],
     "dps": ["CommonStockDividendsPerShareDeclared", "CommonStockDividendsPerShareCashPaid"],
@@ -112,7 +118,14 @@ def normalize_entries(
     locator: str | None,
     is_illustrative: bool = False,
 ) -> tuple[list[Fact], list[str]]:
-    """Deduplicate raw XBRL entries into one Fact per period, reporting restatements."""
+    """Deduplicate raw XBRL entries into one Fact per period, reporting restatements.
+
+    - duration facts keep their actual ``start``/``end`` and ``basis='duration'``;
+    - instant facts have no start and ``basis='instant'``;
+    - accession number and filing date are preserved on every fact;
+    - when filings disagree on the same period (restatement/amendment), the most
+      recently filed value wins and the disagreement is reported as a conflict.
+    """
     facts: dict[date, Fact] = {}
     conflicts: list[str] = []
     seen: dict[date, set[float]] = {}
@@ -125,6 +138,7 @@ def normalize_entries(
         if concept == "capex":
             val = abs(val)  # cash-flow-stated outflows normalized to positive spend
         filed = datetime.fromisoformat(e["filed"]).replace(tzinfo=timezone.utc) if e.get("filed") else now
+        start = e.get("start")
 
         if end in facts:
             seen.setdefault(end, {facts[end].value}).add(val)
@@ -139,12 +153,17 @@ def normalize_entries(
             concept=concept,
             value=val,
             unit=unit,
-            period_start=_parse_day(e["start"]) if e.get("start") else None,
+            basis="duration" if start else "instant",
+            period_start=_parse_day(start) if start else None,
             period_end=end,
-            fiscal_year=int(e.get("fy") or end.year),
+            # XBRL ``fy`` is the *filing's* fiscal-year context: comparative rows in a
+            # newer 10-K carry the newer fy and would split/duplicate periods.
+            # The calendar year of period_end is the only stable period identifier.
+            fiscal_year=end.year,
             fiscal_period="FY",
             is_estimate=False,
             form=e.get("form"),
+            accession=e.get("accn"),
             filed_at=filed,
             is_illustrative=is_illustrative,
             source=SourceRef(provider=provider, locator=locator, retrieved_at=now),
@@ -153,17 +172,38 @@ def normalize_entries(
 
 
 def build_periods(concept_facts: dict[str, list[Fact]]) -> tuple[list[PeriodFinancials], list[str]]:
-    """Group per-concept facts into fiscal periods (ascending). Missing canonical
-    concepts (no fact in the *latest* period) are reported, never filled."""
-    by_key: dict[tuple[int, date], dict[str, Fact]] = {}
+    """Group per-concept facts into fiscal periods keyed by ``period_end`` (ascending).
+
+    ``shares_outstanding`` (a dei cover-page instant with its own filing date) never
+    creates a period of its own: it is attached to the latest financial period.
+    Missing canonical concepts in the latest period are reported, never filled.
+    """
+    by_key: dict[date, dict[str, Fact]] = {}
+    share_fact: Fact | None = None
     for concept, facts in concept_facts.items():
         for f in facts:
-            by_key.setdefault((f.fiscal_year, f.period_end), {})[concept] = f
+            if concept == "shares_outstanding":
+                share_fact = f
+                continue
+            by_key.setdefault(f.period_end, {})[concept] = f
 
     periods = [
-        PeriodFinancials(fiscal_year=ky[0], period_end=ky[1], facts=fs)
-        for ky, fs in sorted(by_key.items(), key=lambda kv: kv[0][1])
+        PeriodFinancials(fiscal_year=end.year, period_end=end, facts=fs)
+        for end, fs in sorted(by_key.items())
     ]
+    if share_fact is not None and periods:
+        last = periods[-1]
+        periods[-1] = last.model_copy(
+            update={
+                "facts": {
+                    **last.facts,
+                    "shares_outstanding": share_fact.model_copy(
+                        update={"period_start": None, "period_end": last.period_end,
+                                "fiscal_year": last.fiscal_year}
+                    ),
+                }
+            }
+        )
     missing: list[str] = []
     if periods:
         latest = periods[-1]
@@ -171,8 +211,53 @@ def build_periods(concept_facts: dict[str, list[Fact]]) -> tuple[list[PeriodFina
     return periods, missing
 
 
+def validate_statements(periods: list[PeriodFinancials]) -> list[str]:
+    """Structural checks on normalized statements.
+
+    Successful retrieval is NOT proof of a correct statement (AGENT_TASKS rule):
+    every period with a full balance sheet must satisfy A = L + E within 1%,
+    and impossible values are flagged. Results are reported, never repaired.
+    """
+    errors: list[str] = []
+    for p in periods:
+        f = p.facts
+        a, l = f.get("total_assets"), f.get("total_liabilities")
+        # balance check needs CONSOLIDATED equity: parent equity + NCI, when reported
+        e = f.get("equity_including_nci") or f.get("equity")
+        if a and l and e and a.value:
+            diff = abs(a.value - (l.value + e.value)) / abs(a.value)
+            if diff > 0.01:
+                errors.append(
+                    f"balance sheet does not balance @{p.period_end}: assets {a.value:,.0f} vs "
+                    f"liabilities+equity {l.value + e.value:,.0f} (diff {diff:.1%}) — "
+                    "possible noncontrolling interests, wrong equity tag, or data error"
+                )
+        e_parent = f.get("equity")
+        if a and e_parent and e_parent.value > a.value * 1.001:
+            errors.append(f"equity exceeds total assets @{p.period_end} ({e_parent.value:,.0f} > {a.value:,.0f})")
+        cash = f.get("cash")
+        if a and cash and cash.value > a.value * 1.001:
+            errors.append(f"cash exceeds total assets @{p.period_end}")
+        re_ = f.get("retained_earnings")
+        if a and re_ and abs(re_.value) > abs(a.value) * 2:
+            errors.append(
+                f"retained earnings implausible @{p.period_end}: {re_.value:,.0f} vs total assets {a.value:,.0f}"
+            )
+        sh = f.get("shares_outstanding")
+        if sh is not None and sh.value <= 0:
+            errors.append(f"non-positive shares outstanding @{p.period_end}")
+        rev = f.get("revenue")
+        if rev is not None and rev.value < 0:
+            errors.append(f"negative revenue @{p.period_end}: {rev.value:,.0f}")
+    return errors
+
+
 def assemble_fundamentals(company, concept_facts, conflicts) -> Fundamentals:
     periods, missing = build_periods(concept_facts)
     return Fundamentals(
-        company=company, periods=periods, missing_concepts=missing, conflicts=conflicts
+        company=company,
+        periods=periods,
+        missing_concepts=missing,
+        conflicts=conflicts,
+        validation_errors=validate_statements(periods),
     )

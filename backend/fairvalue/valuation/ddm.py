@@ -1,83 +1,84 @@
-"""Dividend Discount Models: Gordon single-stage and two-stage."""
-from dataclasses import dataclass
-import math
-from ..errors import FairValueError, NotMeaningfulError
+"""Dividend Discount Model — two-stage Gordon growth.
+
+Formula
+-------
+V = Σ_{t=1..n} DPS_0·(1+g1)^t / (1+r)^t  +  [DPS_n·(1+g)/(r−g)] / (1+r)^n
+Applicable only when the company actually reports dividends per share.
+"""
+
+from __future__ import annotations
+
+from fairvalue.core.schemas import DdmAssumptions, ModelResult, ValuationInputs
+from fairvalue.valuation.base import hist_cagr, not_applicable
+
+MODEL = "ddm"
+
+LIMITATIONS = [
+    "Values only the cash the company distributes; capital-return policies outside DPS (buybacks) are ignored.",
+    "Assumes the stated dividend policy persists — cut-prone payouts make the result fragile.",
+    "Unusable for non-payers; that exclusion is reported rather than replaced with a proxy.",
+]
 
 
-@dataclass(frozen=True)
-class DDMResult:
-    value: float
-    pv_explicit_dividends: float
-    pv_terminal: float
+def calculate(iv: ValuationInputs, a: DdmAssumptions) -> ModelResult:
+    if iv.dps is None or iv.dps <= 0:
+        return not_applicable(
+            MODEL, "no positive dividend reported — DDM cannot value a non-payer",
+            limitation=LIMITATIONS[0],
+        )
 
+    dps0 = iv.dps
+    steps = [
+        f"Base DPS {dps0:.2f}; stage 1 growth {a.stage1_growth:+.1%} for {a.stage1_years} years "
+        f"at required return {a.required_return:.2%}; terminal growth {a.terminal_growth:.2%}."
+    ]
 
-def gordon_ddm(d0: float, r: float, g: float) -> float:
-    """P0 = D1/(r-g) with D1 = D0*(1+g). Negative g allowed (declining payer)."""
-    if not all(math.isfinite(x) for x in (d0, r, g)):
-        raise FairValueError("ddm inputs must be finite")
-    if d0 < 0:
-        raise FairValueError("d0 (dividend) cannot be negative")
-    if d0 == 0:
-        raise NotMeaningfulError("company pays no dividend; DDM not meaningful")
-    if r <= 0:
-        raise FairValueError("cost of equity r must be > 0")
-    if g >= r:
-        raise FairValueError("g must be < r")
-    return d0 * (1.0 + g) / (r - g)
+    pv = 0.0
+    for t in range(1, a.stage1_years + 1):
+        dps = dps0 * (1 + a.stage1_growth) ** t
+        pv += dps / (1 + a.required_return) ** t
+    dps_n = dps0 * (1 + a.stage1_growth) ** a.stage1_years
+    tv = dps_n * (1 + a.terminal_growth) / (a.required_return - a.terminal_growth)
+    tv_pv = tv / (1 + a.required_return) ** a.stage1_years
+    value = pv + tv_pv
 
+    steps.append(f"Stage 1 PV of dividends {pv:,.2f}")
+    steps.append(
+        f"Terminal: {dps_n:.2f}·(1+{a.terminal_growth:.2%})/({a.required_return:.2%}−{a.terminal_growth:.2%}) "
+        f"= {tv:,.2f}, PV {tv_pv:,.2f}"
+    )
+    steps.append(f"Equity value/share = {pv:,.2f} + {tv_pv:,.2f} = {value:,.2f}")
 
-def two_stage_ddm(d0: float, r: float, g_high: float, growth_years: int,
-                  g_terminal: float) -> DDMResult:
-    """Explicit high-growth dividends, then Gordon terminal at g_terminal."""
-    if growth_years < 1:
-        raise FairValueError("growth_years must be >= 1")
-    if not all(math.isfinite(x) for x in (d0, r, g_high, g_terminal)):
-        raise FairValueError("ddm inputs must be finite")
-    if d0 <= 0:
-        raise NotMeaningfulError("company pays no dividend; DDM not meaningful")
-    if r <= 0:
-        raise FairValueError("cost of equity r must be > 0")
-    if g_terminal >= r:
-        raise FairValueError("terminal g must be < r")
+    warnings: list[str] = []
+    hist = [f.value for f in iv.concept_history("dps")]
+    if len(hist) >= 3:
+        cut = any(hist[i + 1] < hist[i] for i in range(len(hist) - 1))
+        if cut:
+            warnings.append("dividend was cut in the historical window — stage-1 growth assumption is fragile")
+        cagr = hist_cagr(iv.concept_history("dps"))
+        if cagr is not None and abs(cagr - a.stage1_growth) > 0.05:
+            warnings.append(
+                f"assumed stage-1 growth {a.stage1_growth:+.1%} differs from historical DPS CAGR {cagr:+.1%}"
+            )
+    if tv_pv / value > 0.75 if value else False:
+        warnings.append("terminal value dominates (>75%) — highly sensitive to r vs g spread")
 
-    pv_explicit = 0.0
-    d = d0
-    for t in range(1, growth_years + 1):
-        d *= (1.0 + g_high)
-        pv_explicit += d / (1.0 + r) ** t
-    d_term = d * (1.0 + g_terminal)
-    if d_term <= 0:
-        raise NotMeaningfulError("terminal dividend <= 0; two-stage DDM not meaningful")
-    pv_terminal = d_term / (r - g_terminal) / (1.0 + r) ** growth_years
-    return DDMResult(value=pv_explicit + pv_terminal,
-                     pv_explicit_dividends=pv_explicit, pv_terminal=pv_terminal)
+    suitability = 0.75 if len(hist) >= 3 else 0.55
+    if iv.price is not None and value > 0:
+        gap = abs(value - iv.price) / iv.price
+        if gap > 0.6:
+            warnings.append(f"DDM result differs from market price by {gap:.0%} — dividend policy may not reflect value")
 
-
-# ---------------------------------------------------------------------------
-# Contract adapter: ValuationInputs -> ModelResult
-# ---------------------------------------------------------------------------
-from ..core.schemas import ValuationInputs, DdmAssumptions, ModelResult
-
-
-def run_model(inputs: ValuationInputs, a: DdmAssumptions) -> ModelResult:
-    base = dict(assumptions=a.model_dump())
-    latest = inputs.history[-1] if inputs.history else None
-    dps = (latest.facts.get("dps").value if latest and "dps" in latest.facts
-           else inputs.dps)
-    if not dps or dps <= 0:
-        return ModelResult(model="ddm", applicable=False,
-                           excluded_reason="company pays no dividend (dps missing or 0)",
-                           **base)
-    r = two_stage_ddm(dps, a.required_return, a.stage1_growth, a.stage1_years,
-                      a.terminal_growth)
-    steps = [f"D0 = {dps:.4f} (reported dps)",
-             f"stage 1: {a.stage1_years}y at {a.stage1_growth:.1%}, "
-             f"PV = {r.pv_explicit_dividends:.4f}",
-             f"terminal Gordon at g={a.terminal_growth:.1%}, PV = {r.pv_terminal:.4f}"]
-    return ModelResult(model="ddm", applicable=True, value_per_share=r.value,
-                       equity_value=r.value,  # DDM discounts equity flows directly
-                       **base,
-                       formula="P0 = sum D_t/(1+r)^t + D_{n+1}/(r-g_t)/(1+r)^n",
-                       steps=steps,
-                       limitations=["unsuitable for non-payers and buyback-heavy firms",
-                                    "value extremely sensitive to r-g spread"])
+    return ModelResult(
+        model=MODEL,
+        applicable=True,
+        value_per_share=value,
+        equity_value=value * iv.shares_outstanding if iv.shares_outstanding else None,
+        confidence="medium" if len(hist) >= 3 else "low",
+        suitability=suitability,
+        assumptions=a.model_dump(),
+        formula="V = Σ DPS_t/(1+r)^t + [DPS_n(1+g)/(r−g)]/(1+r)^n",
+        steps=steps,
+        limitations=LIMITATIONS,
+        warnings=warnings,
+    )

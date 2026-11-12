@@ -1,71 +1,77 @@
-"""Graham-style valuation.
+"""Graham-style valuation (The Intelligent Investor, Ch. 11).
 
-Revised Graham formula: V = EPS * (8.5 + 2*g) * 4.4 / Y
-where g = expected 7-10y growth in percent points (capped at 15 here; the formula
-degrades empirically for high-growth names) and Y = current AAA corporate yield in
-percent (Graham's 1962-era baseline was 4.4).
-Graham Number: sqrt(22.5 * EPS * BVPS) — a defensive floor, not a fair value.
+Formula
+-------
+V = EPS · (8.5 + 2g)        8.5 = base P/E of a no-growth company, g = expected
+                            annual growth over ~7 years (capped at 15% here).
+Defensive screens produce warnings, not exclusions.
 """
-import math
-from ..errors import FairValueError, NotMeaningfulError
+
+from __future__ import annotations
+
+from fairvalue.core.schemas import GrahamAssumptions, ModelResult, ValuationInputs
+from fairvalue.valuation.base import hist_cagr, not_applicable
+
+MODEL = "graham"
+
+LIMITATIONS = [
+    "A 1930s-era heuristic: the fixed 8.5 base P/E ignores current interest rates and sector economics.",
+    "The growth input dominates the output (V scales with 2g) — it must be an estimate, and estimates vary widely.",
+    "Ignores balance sheet, reinvestment needs and risk beyond a simple quality screen.",
+]
 
 
-def graham_value(eps: float, growth_pct: float, aaa_yield_pct: float = 4.4) -> float:
-    if any(not math.isfinite(x) for x in (eps, growth_pct, aaa_yield_pct)):
-        raise FairValueError("graham inputs must be finite")
-    if eps <= 0:
-        raise NotMeaningfulError("negative or zero EPS: Graham formula not meaningful")
-    if aaa_yield_pct <= 0:
-        raise FairValueError("aaa_yield_pct must be > 0")
-    g = max(0.0, min(15.0, growth_pct))  # documented clamp
-    return eps * (8.5 + 2.0 * g) * 4.4 / aaa_yield_pct
+def calculate(iv: ValuationInputs, a: GrahamAssumptions) -> ModelResult:
+    if iv.eps is None or iv.eps <= 0:
+        return not_applicable(MODEL, "positive diluted EPS missing — Graham formula requires earnings per share")
 
+    eps_hist = iv.concept_history("eps_diluted")
+    if a.growth_rate is not None:
+        g, g_basis = a.growth_rate, "assumed"
+    else:
+        cagr = hist_cagr(eps_hist, years_cap=5)
+        if cagr is None:
+            return not_applicable(
+                MODEL, "growth_rate not provided and insufficient historical EPS to derive one (need ≥2 positive years)"
+            )
+        g, g_basis = min(max(cagr, 0.0), 0.15), "historical EPS CAGR (floored at 0, capped at 15%)"
 
-def graham_number(eps: float, book_value_per_share: float) -> float:
-    if eps <= 0 or book_value_per_share <= 0:
-        raise NotMeaningfulError("Graham number requires positive EPS and BVPS")
-    return math.sqrt(22.5 * eps * book_value_per_share)
+    value = iv.eps * (8.5 + 2 * g)
+    steps = [
+        f"V = EPS {iv.eps:.2f} × (8.5 + 2 × g {g:.1%} [{g_basis}]) = {value:,.2f}/share",
+    ]
 
-
-# ---------------------------------------------------------------------------
-# Contract adapter: ValuationInputs -> ModelResult
-# ---------------------------------------------------------------------------
-from ..core.schemas import ValuationInputs, GrahamAssumptions, ModelResult
-
-
-def run_model(inputs: ValuationInputs, a: GrahamAssumptions) -> ModelResult:
-    base = dict(assumptions=a.model_dump())
-    latest = inputs.history[-1] if inputs.history else None
-    eps = inputs.eps or (latest.facts.get("eps_diluted").value
-                         if latest and "eps_diluted" in latest.facts else None)
-    if not eps or eps <= 0:
-        return ModelResult(model="graham", applicable=False,
-                           excluded_reason="positive diluted EPS required", **base)
-    warnings = []
-    g = a.growth_rate
-    if g is None:
-        hist = inputs.concept_history("eps_diluted")
-        if len(hist) >= 2 and hist[0].value > 0:
-            years = len(hist) - 1
-            g = (hist[-1].value / hist[0].value) ** (1.0 / years) - 1.0
-            warnings.append(f"g derived from {years}y EPS history: {g:.1%}")
+    warnings: list[str] = []
+    ni_by_year = [(p.fiscal_year, p.facts["net_income"].value) for p in iv.history if p.facts.get("net_income")]
+    if len(ni_by_year) >= 2 and any(
+        ni_by_year[i][1] < ni_by_year[i - 1][1] for i in range(1, len(ni_by_year))
+    ):
+        warnings.append("earnings declined in the historical window — Graham quality screen not met")
+    ca = next((p.facts["current_assets"].value for p in reversed(iv.history) if p.facts.get("current_assets")), None)
+    cl = next((p.facts["current_liabilities"].value for p in reversed(iv.history) if p.facts.get("current_liabilities")), None)
+    if ca is not None and cl is not None:
+        if ca < 2 * cl:
+            warnings.append(
+                f"defensive criterion not met: current assets {ca:,.0f} < 2× current liabilities {cl:,.0f}"
+            )
         else:
-            return ModelResult(model="graham", applicable=False,
-                               excluded_reason="growth_rate missing and not derivable",
-                               **base)
-    g_pct = max(0.0, min(15.0, g * 100.0))
-    v = graham_value(eps, g_pct, 4.4)  # 4.4 = Graham's baseline AAA yield; documented
-    if a.quality_required:
-        if inputs.total_liabilities and inputs.total_assets and \
-                inputs.total_liabilities > inputs.total_assets:
-            warnings.append("fails defensive screen: liabilities exceed assets")
-        if inputs.total_assets and (inputs.total_assets and inputs.book_equity or 0) <= 0:
-            warnings.append("fails defensive screen: non-positive book equity")
-    steps = [f"EPS = {eps:.2f}; g = {g_pct:.1f}% (clamped to [0, 15]); Y = 4.4",
-             f"V = EPS x (8.5 + 2g) x 4.4 / Y = {v:.2f}"]
-    return ModelResult(model="graham", applicable=True, value_per_share=v,
-                       equity_value=None, **base,
-                       formula="V = EPS x (8.5 + 2g) x 4.4 / Y (Graham 1962-73 revision)",
-                       steps=steps, warnings=warnings,
-                       limitations=["empirical 1962 formula; growth clamped at 15",
-                                    "uses fixed 4.4 AAA baseline yield, not current market yield"])
+            steps.append(f"Defensive screen: current assets {ca:,.0f} ≥ 2× current liabilities {cl:,.0f} ✓")
+    if g > 0.10:
+        warnings.append(f"growth {g:.0%} is aggressive for the Graham formula — value scales directly with 2g")
+    if iv.price:
+        gap = (value - iv.price) / iv.price
+        steps.append(f"vs market price {iv.price:,.2f}: {'above' if gap > 0 else 'below'} by {abs(gap):.0%}")
+
+    return ModelResult(
+        model=MODEL,
+        applicable=True,
+        value_per_share=value,
+        equity_value=value * iv.shares_outstanding if iv.shares_outstanding else None,
+        confidence="low",
+        suitability=0.45 if a.quality_required and warnings else 0.55,
+        assumptions={**a.model_dump(), "growth_rate_used": g},
+        formula="V = EPS × (8.5 + 2g)",
+        steps=steps,
+        limitations=LIMITATIONS,
+        warnings=warnings,
+    )

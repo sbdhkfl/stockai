@@ -1,70 +1,87 @@
-"""Earnings Power Value (Greenwald): growth-free value of normalized earnings.
+"""Earnings Power Value (EPV, Palepu–Higgins style) — no-growth value of
+current sustainable earnings, then − net debt.
 
-Normalized earnings = (EBIT - SBC) * (1 - tax) - (maintenance capex - depreciation)
-EPV = normalized earnings / cost of capital.
-SBC is treated as a real economic expense; maintenance capex substitutes for total
-capex to strip growth investment.
+Formula
+-------
+NOPAT = normalized EBIT · (1 − tax)
+EV    = NOPAT / WACC                (perpetuity of current earnings power)
+Equity = EV − net debt ; value/share = Equity / shares
 """
-import math
-from ..errors import FairValueError, NotMeaningfulError
+
+from __future__ import annotations
+
+from fairvalue.core.schemas import EpvAssumptions, ModelResult, ValuationInputs
+from fairvalue.valuation.base import not_applicable
+
+MODEL = "epv"
+
+LIMITATIONS = [
+    "Gives NO credit for growth or for the returns on reinvested capital — systematically below DCF for growth firms.",
+    "'Normalized' earnings are judged from history: one-cycle businesses need judgment the data cannot supply.",
+    "Assumes maintenance capex ≈ D&A and that current margins are sustainable.",
+]
 
 
-def epv(ebit: float, tax_rate: float, maintenance_capex: float,
-        depreciation: float, sbc: float, cost_of_capital: float) -> float:
-    if any(not math.isfinite(x) for x in
-           (ebit, tax_rate, maintenance_capex, depreciation, sbc, cost_of_capital)):
-        raise FairValueError("epv inputs must be finite")
-    if not (0.0 <= tax_rate < 1.0):
-        raise FairValueError("tax_rate must be in [0, 1)")
-    if cost_of_capital <= 0:
-        raise FairValueError("cost_of_capital must be > 0")
-    normalized = (ebit - sbc) * (1.0 - tax_rate) - (maintenance_capex - depreciation)
-    if normalized <= 0:
-        raise NotMeaningfulError(
-            f"normalized earnings {normalized} <= 0; EPV not meaningful")
-    return normalized / cost_of_capital
+def calculate(iv: ValuationInputs, a: EpvAssumptions) -> ModelResult:
+    if iv.ebit is None:
+        return not_applicable(MODEL, "ebit missing from latest reported period")
+    if not iv.shares_outstanding or iv.net_debt is None:
+        return not_applicable(MODEL, "shares outstanding or net debt missing")
 
+    ebit_hist = [p.facts["ebit"].value for p in iv.history if p.facts.get("ebit")]
+    rev_hist = [(p.facts["ebit"].value / p.facts["revenue"].value)
+                for p in iv.history
+                if p.facts.get("ebit") and p.facts.get("revenue") and p.facts["revenue"].value > 0]
 
-# ---------------------------------------------------------------------------
-# Contract adapter: ValuationInputs -> ModelResult
-# ---------------------------------------------------------------------------
-from ..core.schemas import ValuationInputs, EpvAssumptions, ModelResult
-
-
-def run_model(inputs: ValuationInputs, a: EpvAssumptions) -> ModelResult:
-    base = dict(assumptions=a.model_dump())
-    latest = inputs.history[-1] if inputs.history else None
-    if not latest or "revenue" not in latest.facts or "ebit" not in latest.facts:
-        return ModelResult(model="epv", applicable=False,
-                           excluded_reason="revenue and EBIT required", **base)
-    if not inputs.shares_outstanding:
-        return ModelResult(model="epv", applicable=False,
-                           excluded_reason="shares outstanding missing", **base)
-    rev = latest.facts["revenue"].value
-    if a.margin_normalization == "historical_average" and inputs.history:
-        margins = [p.facts["ebit"].value / p.facts["revenue"].value
-                   for p in inputs.history
-                   if "ebit" in p.facts and p.facts.get("revenue") and p.facts["revenue"].value > 0]
-        margin = sum(margins) / len(margins) if margins else \
-            latest.facts["ebit"].value / rev
+    if a.margin_normalization == "historical_average" and rev_hist:
+        margin = sum(rev_hist) / len(rev_hist)
+        ebit_norm = margin * iv.revenue if iv.revenue else None
+        basis = f"avg operating margin {margin:.1%} × revenue {iv.revenue:,.0f}" if ebit_norm else None
     else:
-        margin = latest.facts["ebit"].value / rev
-    normalized_ebit = margin * rev
-    e = normalized_ebit * (1.0 - a.tax_rate)
-    if e <= 0:
-        return ModelResult(model="epv", applicable=False,
-                           excluded_reason="normalized after-tax earnings <= 0", **base)
-    ev = e / a.wacc
-    equity = ev - (inputs.net_debt or 0.0)
-    steps = [f"normalized EBIT margin {margin:.1%} ({a.margin_normalization}) x revenue "
-             f"{rev:,.0f} = {normalized_ebit:,.0f}",
-             f"after-tax {e:,.0f} / WACC {a.wacc:.1%} = EV {ev:,.0f}",
-             f"equity = {equity:,.0f} after net debt {inputs.net_debt or 0.0:,.0f}"]
-    return ModelResult(model="epv", applicable=True,
-                       value_per_share=equity / inputs.shares_outstanding,
-                       enterprise_value=ev, equity_value=equity,
-                       **base,
-                       formula="EPV = normalized (EBIT*(1-t)) / WACC; growth-free",
-                       steps=steps,
-                       limitations=["growth-free by design: no credit for growth options",
-                                    "distorts cyclicals measured at peak earnings"])
+        ebit_norm = iv.ebit
+        basis = f"latest reported EBIT {iv.ebit:,.0f}"
+    if ebit_norm is None:
+        return not_applicable(MODEL, "cannot normalize earnings: EBIT history unavailable")
+
+    if ebit_norm <= 0:
+        return not_applicable(MODEL, "normalized EBIT non-positive — earnings power is negative")
+
+    nopat = ebit_norm * (1 - a.tax_rate)
+    ev = nopat / a.wacc
+    equity = ev - iv.net_debt
+    value = equity / float(iv.shares_outstanding)
+
+    steps = [
+        f"Normalized EBIT via {basis} = {ebit_norm:,.0f}",
+        f"NOPAT = {ebit_norm:,.0f} × (1 − {a.tax_rate:.0%}) = {nopat:,.0f}",
+        f"EV = NOPAT / WACC = {nopat:,.0f} / {a.wacc:.2%} = {ev:,.0f} (zero-growth perpetuity)",
+        f"equity = {ev:,.0f} − net debt {iv.net_debt:,.0f} = {equity:,.0f} ÷ "
+        f"{iv.shares_outstanding:,.0f} = {value:,.2f}/share",
+    ]
+    if iv.price:
+        steps.append("EPV intentionally excludes growth: a result below a growth firm's price is expected, not an error")
+
+    warnings = []
+    capex_rates = [p.facts["capex"].value / p.facts["revenue"].value
+                   for p in iv.history
+                   if p.facts.get("capex") and p.facts.get("revenue") and p.facts["revenue"].value > 0]
+    da_rates = [p.facts["depreciation_amortization"].value / p.facts["revenue"].value
+                for p in iv.history
+                if p.facts.get("depreciation_amortization") and p.facts.get("revenue") and p.facts["revenue"].value > 0]
+    if capex_rates and da_rates and (sum(capex_rates) / len(capex_rates)) > 1.3 * (sum(da_rates) / len(da_rates)):
+        warnings.append("capex runs >130% of D&A: the business is expanding — EPV of current earnings understates a growing firm")
+
+    return ModelResult(
+        model=MODEL,
+        applicable=True,
+        value_per_share=value,
+        enterprise_value=ev,
+        equity_value=equity,
+        confidence="medium",
+        suitability=0.75 if len(rev_hist) >= 3 else 0.55,
+        assumptions=a.model_dump(),
+        formula="EV = normalized NOPAT / WACC; equity = EV − net debt",
+        steps=steps,
+        limitations=LIMITATIONS,
+        warnings=warnings,
+    )

@@ -14,6 +14,8 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from fairvalue.core.schemas import (
+    CANONICAL_CONCEPTS,
+    FLOW_CONCEPTS,
     ComparableCompany,
     CompanyProfile,
     Fact,
@@ -39,6 +41,8 @@ ALIAS = {  # table key -> canonical concept (ebitda derived later, dps/eps expli
     "dep": "depreciation_amortization",
     "oca": "current_assets",
     "ocl": "current_liabilities",
+    "shares": "shares_outstanding",
+    "eps": "eps_diluted",
 }
 
 _COMPANIES: dict[str, dict[str, Any]] = {
@@ -211,7 +215,7 @@ class DemoProvider:
             for key, val in row.items():
                 if key in ("fy", "end"):
                     continue
-                concept = ALIAS.get(key, "eps_diluted" if key == "eps" else key)
+                concept = ALIAS.get(key, key)
                 if concept not in ("eps_diluted", "dps", "shares_outstanding"):
                     value = float(val) * M
                 else:
@@ -222,24 +226,28 @@ class DemoProvider:
                     unit={"shares_outstanding": "shares", "eps_diluted": "USD/shares", "dps": "USD/shares"}.get(
                         concept, "USD"
                     ),
+                    basis="duration" if concept in FLOW_CONCEPTS else "instant",
+                    period_start=period_end if concept in FLOW_CONCEPTS else None,
                     period_end=period_end,
                     fiscal_year=row["fy"],
                     is_estimate=False,
                     form="illustrative-filing",
+                    accession=f"DEMO-{row['fy']}-{concept}",
                     filed_at=NOW,
                     is_illustrative=True,
                     source=SOURCE,
                 )
             periods.append(PeriodFinancials(fiscal_year=row["fy"], period_end=period_end, facts=facts))
         periods.sort(key=lambda p: p.period_end)
-        from fairvalue.core.schemas import CANONICAL_CONCEPTS
-
         missing = {c for c in CANONICAL_CONCEPTS if c not in periods[-1].facts and c != "ebitda"}
+        from fairvalue.data.normalize import validate_statements
+
         return Fundamentals(
             company=self._profile(ticker),
             periods=periods,
             missing_concepts=sorted(missing),
             conflicts=[],
+            validation_errors=validate_statements(periods),
         )
 
     def get_market_data(self, ticker: str) -> MarketData | None:

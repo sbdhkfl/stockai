@@ -1,118 +1,131 @@
-"""Comparable-company multiples.
+"""Comparable Company Analysis — market multiples of peer companies.
 
-Rules:
-- median, never mean (outlier resistance)
-- peers with non-positive metrics are EXCLUDED with a recorded reason, never treated as 0
-- EV-level multiples pair with EV-level denominators only; equity multiples with
-  equity-level only (mixing levels is the classic comps error; enforced by enum).
+Formula
+-------
+peer multiples are computed from raw peer fundamentals (never stored):
+EV/EBITDA = EV / EBITDA ; P/E = market cap / net income ;
+EV/Sales = EV / revenue ; P/B = market cap / book equity.
+Company value = statistic(peer multiples) × company metric
+               (enterprise multiples → − net debt → equity; equity multiples → equity).
+Value/share across selected multiples is combined with the same statistic (median/mean).
 """
-from dataclasses import dataclass
-import statistics
-from ..errors import FairValueError, NotMeaningfulError
+
+from __future__ import annotations
+
+from statistics import mean, median
+
+from fairvalue.core.schemas import ComparablesAssumptions, ModelResult, ValuationInputs
+from fairvalue.valuation.base import not_applicable
+
+MODEL = "comparables"
+
+LIMITATIONS = [
+    "Peers trade at their own mispricings and growth/risk mixes; multiples transfer those biases.",
+    "Reported peer metrics may be as of different dates than the company's fiscal year end.",
+    "A median of few peers is fragile: the peer count is always reported with the result.",
+]
 
 
-@dataclass(frozen=True)
-class Level:
-    """VALUATION_LEVEL = enterprise or equity."""
-    name: str
-
-
-ENTERPRISE = Level("enterprise")
-EQUITY = Level("equity")
-
-
-def median_multiple(peer_multiples: list) -> float:
-    """peer_multiples: list of positive, finite multiples."""
-    clean = [m for m in peer_multiples if m is not None and m > 0]
-    if not clean:
-        raise NotMeaningfulError("no positive peer multiples available")
-    return statistics.median(clean)
-
-
-def implied_value_from_multiple(peer_multiples: list, target_metric: float,
-                                level: Level) -> float:
-    if any(not isinstance(p, Level) for p in [level]):
-        raise FairValueError("level must be ENTERPRISE or EQUITY")
-    if target_metric <= 0:
-        raise NotMeaningfulError(
-            "target metric <= 0: multiple-based value not meaningful")
-    return median_multiple(peer_multiples) * target_metric
-
-# ---------------------------------------------------------------------------
-# Contract adapter: ValuationInputs -> ModelResult
-# ---------------------------------------------------------------------------
-from ..core.schemas import ValuationInputs, ComparablesAssumptions, ModelResult
-
-
-def _peer_multiple(peer, kind):
+def _peer_multiple(kind: str, p) -> float | None:
     if kind == "ev_ebitda":
-        return peer.enterprise_value / peer.ebitda if peer.enterprise_value and peer.ebitda and peer.ebitda > 0 else None
+        if p.enterprise_value is None or not p.ebitda or p.ebitda <= 0:
+            return None
+        return p.enterprise_value / p.ebitda
     if kind == "ev_sales":
-        return peer.enterprise_value / peer.revenue if peer.enterprise_value and peer.revenue and peer.revenue > 0 else None
+        if p.enterprise_value is None or not p.revenue or p.revenue <= 0:
+            return None
+        return p.enterprise_value / p.revenue
     if kind == "pe":
-        if peer.price and peer.shares_outstanding and peer.net_income and peer.net_income > 0:
-            return (peer.price * peer.shares_outstanding) / peer.net_income
+        if p.price is None or not p.shares_outstanding or not p.net_income or p.net_income <= 0:
+            return None
+        return (p.price * p.shares_outstanding) / p.net_income
+    if kind == "pb":
+        if p.price is None or not p.shares_outstanding or not p.equity or p.equity <= 0:
+            return None
+        return (p.price * p.shares_outstanding) / p.equity
+    return None
+
+
+def _company_per_share(kind: str, multiple: float, iv: ValuationInputs) -> float | None:
+    if kind == "ev_ebitda":
+        if iv.ebitda is None or iv.net_debt is None:
+            return None
+        return (multiple * iv.ebitda - iv.net_debt) / float(iv.shares_outstanding)
+    if kind == "ev_sales":
+        if iv.revenue is None or iv.net_debt is None:
+            return None
+        return (multiple * iv.revenue - iv.net_debt) / float(iv.shares_outstanding)
+    if kind == "pe":
+        if iv.eps is not None:
+            return multiple * iv.eps
+        if iv.net_income is not None and iv.shares_outstanding:
+            return multiple * (iv.net_income / iv.shares_outstanding)
         return None
     if kind == "pb":
-        if peer.price and peer.shares_outstanding and peer.equity and peer.equity > 0:
-            return (peer.price * peer.shares_outstanding) / peer.equity
-        return None
-    raise FairValueError(f"unknown multiple kind '{kind}'")
+        if iv.book_equity is None or not iv.shares_outstanding:
+            return None
+        return multiple * (iv.book_equity / float(iv.shares_outstanding))
+    return None
 
 
-def run_model(inputs: ValuationInputs, a: ComparablesAssumptions) -> ModelResult:
-    base = dict(assumptions=a.model_dump())
-    if not inputs.peers:
-        return ModelResult(model="comparables", applicable=False,
-                           excluded_reason="no peer companies provided", **base)
-    if not inputs.shares_outstanding:
-        return ModelResult(model="comparables", applicable=False,
-                           excluded_reason="shares outstanding missing", **base)
-    latest = inputs.history[-1] if inputs.history else None
-    results, steps, warnings = {}, [], []
+def calculate(iv: ValuationInputs, a: ComparablesAssumptions) -> ModelResult:
+    if not iv.peers:
+        return not_applicable(
+            MODEL,
+            "no peer data source configured (live mode has no free peer feed; supply peers or use demo mode)",
+            limitation=LIMITATIONS[0],
+        )
+    if not iv.shares_outstanding:
+        return not_applicable(MODEL, "shares outstanding missing")
+
+    stat = median if a.statistic == "median" else mean
+    steps: list[str] = [f"{len(iv.peers)} peers; statistic = {a.statistic}."]
+    per_share_values: list[float] = []
+    used: list[str] = []
+    warnings: list[str] = []
+
     for kind in a.multiples:
-        mults = [m for p in inputs.peers if (m := _peer_multiple(p, kind)) is not None]
-        if len(mults) < a.min_peers:
-            warnings.append(f"{kind}: only {len(mults)} usable peers (min {a.min_peers})")
+        mults = [m for m in (_peer_multiple(kind, p) for p in iv.peers) if m is not None]
+        usable_peers = len(mults)
+        if usable_peers < a.min_peers:
+            steps.append(f"{kind}: only {usable_peers} peer(s) with usable data (< {a.min_peers}) — skipped")
             continue
-        stat = statistics.median(mults) if a.statistic == "median" else statistics.mean(mults)
-        # target metric: EV-level for ev_*, equity-level for pe/pb (level pairing rule)
-        if kind == "ev_ebitda":
-            target, level = inputs.ebitda, "EV"
-        elif kind == "ev_sales":
-            target, level = inputs.revenue, "EV"
-        elif kind == "pe":
-            target, level = inputs.eps, "equity"
-        else:
-            target, level = (inputs.book_equity / inputs.shares_outstanding
-                             if inputs.book_equity else None), "equity"
-        if not target or target <= 0:
-            warnings.append(f"{kind}: target metric missing or <= 0 — skipped")
-            continue
-        implied = stat * target
-        if level == "EV":
-            implied_equity = implied - (inputs.net_debt or 0.0)
-            per_share = implied_equity / inputs.shares_outstanding
-            steps.append(f"{kind}: median {stat:.2f}x x target {target:,.0f} -> EV "
-                         f"{implied:,.0f}; equity {implied_equity:,.0f}; "
-                         f"{per_share:.2f}/share")
-        else:
-            per_share = implied
-            steps.append(f"{kind}: median {stat:.2f}x x target {target:.2f} -> "
-                         f"{per_share:.2f}/share (equity level, no bridge)")
-        results[kind] = per_share
-    if not results:
-        return ModelResult(model="comparables", applicable=False,
-                           excluded_reason="no multiple produced a usable value",
-                           warnings=warnings, **base)
-    vals = sorted(results.values())
-    mid = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals)//2-1] + vals[len(vals)//2]) / 2
-    steps.append(f"per-share estimates {', '.join(f'{k}: {v:.2f}' for k, v in results.items())}"
-                 f" -> central {mid:.2f}")
-    return ModelResult(model="comparables", applicable=True, value_per_share=mid,
-                       **base,
-                       formula="implied value = peer median multiple x target metric "
-                               "(EV multiples bridged to equity via net debt)",
-                       steps=steps, warnings=warnings,
-                       limitations=["peer set quality dominates; sector/size screening "
-                                    "happens upstream of this module"])
+        m = float(stat(mults))
+        v = _company_per_share(kind, m, iv)
+        steps.append(
+            f"{kind}: peer multiples {[round(x, 1) for x in sorted(mults)]} → {a.statistic} {m:.1f}x"
+            + (f" → {v:,.2f}/share" if v is not None else " → inputs missing on target company, skipped")
+        )
+        if v is not None:
+            per_share_values.append(v)
+            used.append(kind)
+
+    if not per_share_values:
+        return not_applicable(
+            MODEL, "no multiple could be applied: peer data or company metrics insufficient",
+            limitation=LIMITATIONS[1],
+        )
+
+    value = float(stat(per_share_values))
+    steps.append(
+        f"Across {used}: {a.statistic} = {value:,.2f}/share"
+        + (f" (range {min(per_share_values):,.2f}–{max(per_share_values):,.2f})" if len(per_share_values) > 1 else "")
+    )
+    if len(per_share_values) > 1 and max(per_share_values) / min(per_share_values) > 1.5:
+        warnings.append("multiples disagree by >50% — the peer set spans incompatible business models")
+
+    n_peers = min(len(iv.peers), min(len([p for p in iv.peers]), 8))
+    suitability = 0.5 + 0.05 * n_peers - (0.1 if len(per_share_values) == 1 else 0.0)
+
+    return ModelResult(
+        model=MODEL,
+        applicable=True,
+        value_per_share=value,
+        confidence="medium" if len(iv.peers) >= 4 else "low",
+        suitability=max(0.2, min(1.0, suitability)),
+        assumptions=a.model_dump(),
+        formula="value/share = statistic(peer multiples) × company metric (− net debt for enterprise multiples)",
+        steps=steps,
+        limitations=LIMITATIONS,
+        warnings=warnings,
+    )

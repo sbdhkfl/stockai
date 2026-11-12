@@ -95,61 +95,29 @@ class EdgarProvider:
         except ValueError as exc:
             raise ProviderError("provider_bad_response", f"companyfacts unreadable for {ticker}: {exc}") from exc
 
-        facts = payload.get("facts", {})
-        concept_facts: dict[str, list] = {}
-        conflicts: list[str] = []
-
-        for concept, tags in TAG_MAP.items():
-            collected: list = []
-            for tag in tags:
-                entries = _unit_entries(facts, "us-gaap", tag, ("USD", "USD/shares"))
-                if not entries:
-                    continue
-                fs, cs = normalize_entries(
-                    concept, entries, provider=self.name, locator=f"{locator}#us-gaap:{tag}"
-                )
-                collected.extend(f for f in fs if f.period_end not in {x.period_end for x in collected})
-                conflicts.extend(cs)
-            if collected:
-                concept_facts[concept] = collected
-
-        # total_debt fallback: sum of noncurrent + current when LongTermDebt is absent
-        if "total_debt" not in concept_facts:
-            debt_parts: dict = {}
-            for tag in COMBINED_DEBT_TAGS:
-                fs, cs = normalize_entries(
-                    "total_debt",
-                    _unit_entries(facts, "us-gaap", tag, ("USD",)),
-                    provider=self.name,
-                    locator=f"{locator}#us-gaap:{tag}",
-                )
-                conflicts.extend(cs)
-                for f in fs:
-                    debt_parts.setdefault(f.period_end, []).append(f)
-            if debt_parts:
-                concept_facts["total_debt"] = _merge_debt_parts(debt_parts, locator, self.name)
-
-        # shares outstanding: dei cover-page count (latest filing wins)
-        dei_facts = facts.get("dei", {}).get(DEI_SHARES_TAG, {})
-        shares = []
-        for unit_entries in dei_facts.get("units", {}).values():
-            fs, cs = normalize_entries(
-                "shares_outstanding", unit_entries, provider=self.name, locator=f"{locator}#dei:{DEI_SHARES_TAG}"
-            )
-            conflicts.extend(cs)
-            shares.extend(fs)
-        if shares:
-            latest = max(shares, key=lambda f: f.filed_at or datetime.min.replace(tzinfo=timezone.utc))
-            concept_facts["shares_outstanding"] = [latest]
+        concept_facts, conflicts = extract_concepts(payload.get("facts", {}), locator=locator)
 
         entry = self._load_index().get(ticker.upper(), {})
         company = CompanyProfile(
             ticker=ticker.upper(),
             name=str(entry.get("title", ticker.upper())),
             cik=str(cik).zfill(10),
+            sector=self._sic_description(cik),
             provider=self.name,
         )
-        return assemble_fundamentals(company, concept_facts, sorted(set(conflicts)))
+        return assemble_fundamentals(company, concept_facts, conflicts)
+
+    def _sic_description(self, cik: int) -> str | None:
+        """SEC SIC description from the submissions feed (used for industry rules)."""
+        import json
+
+        url = f"https://data.sec.gov/submissions/CIK{cik:010d}.json"
+        try:
+            meta = json.loads(http_get(url, user_agent=self.user_agent))
+        except (ProviderError, ValueError):
+            return None
+        desc = meta.get("sicDescription")
+        return str(desc) if desc else None
 
     # -- market / peers / transactions / segments / macro --------------------------
     def get_market_data(self, ticker: str) -> MarketData | None:
@@ -168,12 +136,94 @@ class EdgarProvider:
         return None
 
 
-def _unit_entries(facts: dict, taxonomy: str, tag: str, units: tuple[str, ...]) -> list[dict]:
-    node = facts.get(taxonomy, {}).get(tag, {})
-    out: list[dict] = []
-    for unit in units:
-        out.extend(node.get("units", {}).get(unit, []))
-    return out
+def extract_concepts(
+    facts: dict, *, locator: str, provider: str = "sec_edgar"
+) -> tuple[dict[str, list], list[str]]:
+    """Pure XBRL-facts → canonical-concept mapping (used by the provider and by
+    offline regression tests over recorded real-filing fixtures).
+
+    Returns ``(concept -> normalized facts, conflicts)``. Extraction never
+    invents values: absent tags stay absent and surface as missing concepts.
+    """
+    concept_facts: dict[str, list] = {}
+    conflicts: list[str] = []
+
+    # taxonomy key spelling differs: live companyfacts uses "us-gaap",
+    # recorded fixtures use "us_gaap". Accept both; unknown -> empty.
+    def _tax(name: str) -> dict:
+        return facts.get(name) or facts.get(name.replace("-", "_"), {})
+
+    for concept, tags in TAG_MAP.items():
+        collected: list = []
+        for tag in tags:
+            entries = _unit_entries(_tax("us-gaap"), tag, ("USD", "USD/shares"))
+            if not entries:
+                continue
+            fs, cs = normalize_entries(
+                concept, entries, provider=provider, locator=f"{locator}#us-gaap:{tag}"
+            )
+            # priority-tag merge: keep the first (highest-priority) tag per period
+            collected.extend(f for f in fs if f.period_end not in {x.period_end for x in collected})
+            conflicts.extend(cs)
+        if collected:
+            concept_facts[concept] = collected
+
+    # total_debt fallback: sum of noncurrent + current when LongTermDebt is absent
+    if "total_debt" not in concept_facts:
+        debt_parts: dict = {}
+        for tag in COMBINED_DEBT_TAGS:
+            fs, cs = normalize_entries(
+                "total_debt",
+                _unit_entries(_tax("us-gaap"), tag, ("USD",)),
+                provider=provider,
+                locator=f"{locator}#us-gaap:{tag}",
+            )
+            conflicts.extend(cs)
+            for f in fs:
+                debt_parts.setdefault(f.period_end, []).append(f)
+        if debt_parts:
+            concept_facts["total_debt"] = _merge_debt_parts(debt_parts, locator, provider)
+
+    # shares outstanding: dei cover-page count (own filing date; NEVER its own period)
+    dei_node = _tax("dei").get(DEI_SHARES_TAG)
+    shares = []
+    if isinstance(dei_node, list):
+        unit_iter = [dei_node]  # fixture shape: pre-trimmed entry list
+    elif isinstance(dei_node, dict):
+        unit_iter = list(dei_node.get("units", {}).values())
+    else:
+        unit_iter = []
+    for unit_entries in unit_iter:
+        fs, cs = normalize_entries(
+            "shares_outstanding", unit_entries, provider=provider,
+            locator=f"{locator}#dei:{DEI_SHARES_TAG}",
+        )
+        conflicts.extend(cs)
+        shares.extend(fs)
+    if shares:
+        latest = max(shares, key=lambda f: f.filed_at or datetime.min.replace(tzinfo=timezone.utc))
+        concept_facts["shares_outstanding"] = [latest]
+
+    return concept_facts, sorted(set(conflicts))
+
+
+def _unit_entries(taxonomy_facts: dict, tag: str, units: tuple[str, ...]) -> list[dict]:
+    """Entry extraction tolerant of both shapes:
+    - live companyfacts: node = {"units": {"USD": [entry, ...]}} (taxonomy-level dict)
+    - recorded fixtures: node = [entry, ...] (pre-trimmed; unit info implied)
+    Raises on unknown shapes so a broken offline pipeline cannot silently
+    return zero facts (regression: fixtures once produced 0 periods)."""
+    node = taxonomy_facts.get(tag)
+    if node is None:
+        return []
+    if isinstance(node, list):
+        return list(node)
+    if isinstance(node, dict):
+        out: list[dict] = []
+        for unit in units:
+            out.extend(node.get("units", {}).get(unit, []))
+        return out
+    raise ValueError(f"unrecognized XBRL node shape for {taxonomy}:{tag}: {type(node).__name__}")
 
 
 def _merge_debt_parts(parts: dict, locator: str, provider: str):
