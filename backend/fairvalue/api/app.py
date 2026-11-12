@@ -11,6 +11,7 @@ Endpoints:
   GET  /v1/companies/{ticker}/valuation      (params: price, peers, models, demo)
   POST /v1/companies/{ticker}/scenarios
   GET  /v1/companies/{ticker}/explain
+  POST /v1/valuation/from-data               (body: agent-supplied financial data)
   GET  /v1/reports  ·  GET /v1/reports/{id}
 
 Errors: {"error": {"code", "message", "detail"}} (ApiError contract).
@@ -30,6 +31,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from fairvalue.agent_data import AgentSuppliedCompany
 from fairvalue.core.schemas import ApiError, DcfAssumptions, ValuationReport
 from fairvalue.data import ProviderError, get_provider
 from fairvalue.data.base import ProviderError as _PE  # re-exported alias safety
@@ -37,6 +39,7 @@ from fairvalue.service import (
     ValuationOptions,
     load_inputs,
     run_valuation,
+    run_valuation_from_data,
     search_companies,
 )
 
@@ -308,6 +311,31 @@ def explain(ticker: str, demo: bool = False):
     _REPORTS[report.report_id] = report
     _persist(report)
     return report.explanation.model_dump()
+
+
+@app.post("/v1/valuation/from-data")
+def valuation_from_data(
+    payload: AgentSuppliedCompany,
+    wacc: float | None = Query(None, gt=0, lt=1),
+    price: float | None = Query(None, gt=0),
+    models: list[str] | None = Query(None),
+):
+    """Valuation from agent-supplied structured data: the agent retrieves the
+    financials, this endpoint validates them and runs the models. No external
+    data provider is contacted; ticker comes from the body (no allowlist)."""
+    try:
+        report = run_valuation_from_data(
+            payload, ValuationOptions(wacc=wacc, price=price, models=models))
+    except ProviderError as exc:
+        return _err(exc.code, exc.message, status=502)
+    except ValueError as exc:  # nothing usable after validation (req 9: no fabrication)
+        return _err("validation_failed", str(exc), status=422)
+    if report.report_id is None:
+        report = report.model_copy(update={"report_id": f"r-{uuid.uuid4().hex[:12]}"})
+    assert report.report_id is not None   # narrowed for mypy (model_copy hides it)
+    _REPORTS[report.report_id] = report
+    _persist(report)
+    return report.model_dump()
 
 
 @app.get("/v1/reports")

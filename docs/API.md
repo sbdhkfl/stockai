@@ -19,6 +19,7 @@ Base URL: `http://127.0.0.1:8000` · Interactive docs: `/docs` · OpenAPI: `/ope
 | GET | `/v1/companies/{ticker}/valuation` | Full report: 9 models, reconciliation, scenarios, explanation |
 | POST | `/v1/companies/{ticker}/scenarios` | Bear/base/bull + WACC×growth grid |
 | GET | `/v1/companies/{ticker}/explain` | Deterministic plain-language explanation |
+| POST | `/v1/valuation/from-data` | Full report from **agent-supplied structured data** — no external provider, no ticker allowlist (query params: `wacc`, `price`, `models`) |
 | GET | `/v1/reports` | Stored report index (DB-backed when `FAIRVALUE_DB_URL` is set) |
 | GET | `/v1/reports/{report_id}` | Full stored report (404 in ApiError shape if unknown) |
 
@@ -31,7 +32,7 @@ and limitations — never a bare number.
 comparison). **Rate limit:** per-client, in-memory. **CORS:** explicit origin
 list, no wildcard (see [CONFIGURATION.md](CONFIGURATION.md)).
 
-## MCP server (11 tools, two transports)
+## MCP server (13 tools, two transports)
 
 Same server, same tools, same responses on both transports (enforced by a
 stdio↔HTTP parity test):
@@ -64,6 +65,11 @@ Client configs: [MCP_CLIENTS.md](MCP_CLIENTS.md) · HTTPS deployment:
 | `run_scenario_analysis` | `ticker`, `wacc`, `demo` |
 | `explain_valuation` | `ticker`, `demo` |
 | `get_valuation_report` | `report_id` |
+| `submit_financial_data` | `data` (JSON envelope — validation only, no valuation) |
+| `calculate_valuation_from_data` | `data`, `wacc?`, `price?`, `models?` (full report from agent-supplied data) |
+
+Envelope reference, provenance taxonomy and validation rules for the two
+`from-data` tools: [AGENT_DATA.md](AGENT_DATA.md).
 
 Failures return a **structured error payload** (`error.code` such as
 `provider_error`, `not_found`, `assumption_missing`) instead of free text —

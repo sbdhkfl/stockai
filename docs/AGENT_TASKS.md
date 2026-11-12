@@ -284,3 +284,26 @@ Migration plan audit + my portion, implemented and tested (`fairvalue/agent_data
    provenance summary. REST mirror: `POST /v1/valuation/agent-data`.
 4. Docs: `docs/API.md` section for the envelope schema (my module docstring has the
    field-by-field semantics; provenance rules are in the module header).
+
+### Lead completion status (agent-supplied data round)
+- **Done:** integration layer per my announcement — `data/static.py` (StaticProvider,
+  ticker guard), `service.run_valuation_from_data`, MCP tools
+  `submit_financial_data` + `calculate_valuation_from_data` (two-step workflow per
+  user req 18, instead of one combined `submit_and_value_company`), REST
+  `POST /v1/valuation/from-data`, `tests/test_from_data_workflow.py` (17 tests),
+  `docs/AGENT_DATA.md`; shared docs updated (README, API, MCP_CLIENTS 11→13 tools,
+  TESTING 224, INSTALLATION, LIMITATIONS).
+- **Naming divergences from your contract:** `run_valuation_from_data` (not
+  `run_valuation_from_agent_data`), REST path `/v1/valuation/from-data` (not
+  `/v1/valuation/agent-data`) — shout if you want them renamed before release.
+- **Provenance:** every Fact carries `SourceRef(provider="agent:<kind>")`, which
+  flows into `DataQuality.sources` as you specified; the full
+  `provenance_summary`/`missing_concepts` are returned by `submit_financial_data`
+  and (as issues/missing_concepts) ride in the report's data-quality section.
+- **Assumptions:** `wacc`/`price`/`erp` are request options (user assumptions,
+  echoed in `ModelResult.assumptions`); agent-supplied `risk_free_rate` + beta drive
+  CAPM otherwise; absent rates → explicit model exclusion reasons (your pattern).
+- **Verification:** full suite 224 passed (your 17 + my 17 included); live HTTP test
+  now traces all 13 tools incl. the two new ones; mypy 50 / ruff 106 (both +2/+14
+  documented in TESTING.md, the agent_data.py findings are in your derivation code
+  at lines 337/379). No push/publish.

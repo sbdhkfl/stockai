@@ -40,7 +40,7 @@ python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 
 ```bash
 cd backend
-python -m fairvalue.mcp_server      # stdio transport; 11 tools
+python -m fairvalue.mcp_server      # stdio transport; 13 tools
 ```
 
 Example MCP client registration (Claude Desktop / any MCP-compatible host):

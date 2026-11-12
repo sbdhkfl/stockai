@@ -108,6 +108,7 @@ class CompanyProfile(BaseModel):
     industry: str | None = None
     country: str | None = None
     currency: str = "USD"
+    accounting_standard: str | None = None  # e.g. "US-GAAP" / "IFRS" when known
     business_description: str | None = None
     provider: str = "unknown"
     is_illustrative: bool = False

@@ -1,6 +1,6 @@
 # MCP client setup guides
 
-FAIRVALUE AI exposes the same **11 tools** over two transports:
+FAIRVALUE AI exposes the same **13 tools** over two transports:
 
 | Transport | Entry | Auth |
 |---|---|---|
@@ -12,16 +12,16 @@ FAIRVALUE AI exposes the same **11 tools** over two transports:
 **Verified in this repository** (real clients, real subprocess/network, see
 `backend/tests/test_mcp_stdio_live.py` and `test_mcp_http_live.py`):
 
-- stdio transport: 11 tools listed, valuations, structured errors, wacc honored,
+- stdio transport: 13 tools listed, valuations, structured errors, wacc honored,
   report roundtrip.
-- Streamable HTTP transport: 11 tools listed, every tool returns traceable data,
-  401 without/with wrong token, two concurrent sessions without conflicts,
-  stdio↔HTTP output parity.
+- Streamable HTTP transport: 13 tools listed, every tool returns traceable data
+  (including the two agent-supplied-data tools), 401 without/with wrong token,
+  two concurrent sessions without conflicts, stdio↔HTTP output parity.
 
 **Not verified:** the GUI/CLI configuration of the individual assistant products
 below. Those configs follow each vendor's published documentation, but this
 project has not run inside them — treat them as starting points and confirm the
-11 tools appear in your client's tool list.
+13 tools appear in your client's tool list.
 
 ---
 
@@ -43,7 +43,7 @@ project has not run inside them — treat them as starting points and confirm th
 }
 ```
 
-Restart Claude Desktop; the 11 `fairvalue` tools should appear under the
+Restart Claude Desktop; the 13 `fairvalue` tools should appear under the
 tools/connector icon.
 
 **Remote (Streamable HTTP):** Claude Desktop custom connectors
@@ -90,7 +90,7 @@ Project file `.vscode/mcp.json` (or user-level MCP config):
 
 Start the remote server first (`python -m fairvalue.mcp_http`), then use
 *MCP: List Servers* in the command palette to confirm `fairvalue` connects and
-lists 11 tools.
+lists 13 tools.
 
 ## OpenCode
 
@@ -159,7 +159,7 @@ support header-based tokens.
 
 Whatever the client, the acceptance check is the same:
 
-1. Server lists **11 tools** (`search_company` … `get_valuation_report`).
+1. Server lists **13 tools** (`search_company` … `calculate_valuation_from_data`).
 2. `calculate_valuation {"ticker": "AUR", "demo": true}` returns a report with
    `report_id`, `reconciliation`, `is_illustrative: true` and an `explanation`.
 3. `get_valuation_report {"report_id": "<id from step 2>"}` returns the same

@@ -20,6 +20,12 @@ to surface gaps instead of filling them with guesses.
 - **Peer data.** Comparables/precedents need peer multiples; in live mode they
   are frequently excluded (with recorded reasons) rather than computed from
   stale or missing inputs.
+- **Agent-supplied data** (`POST /v1/valuation/from-data`, MCP
+  `submit_financial_data`) is validated for units, dates, duplicates and
+  accounting identities, but the engine **cannot verify that a supplied number
+  matches the company's actual filings** — correctness rests on the agent's
+  `source` provenance, which is echoed, not audited. Nothing is cross-checked
+  against SEC data in this path by design (see [AGENT_DATA.md](AGENT_DATA.md)).
 
 ## Models
 

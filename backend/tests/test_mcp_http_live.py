@@ -4,7 +4,7 @@ a stdio-vs-HTTP parity check so both transports stay byte-compatible.
 
 Auth is required on /mcp and open on /health; tokens are test constants, never
 real credentials. The stdio side is additionally covered by
-test_mcp_stdio_live.py (11 tools, error contract, wacc, report roundtrip).
+test_mcp_stdio_live.py (13 tools, error contract, wacc, report roundtrip).
 """
 import json
 import os
@@ -26,6 +26,7 @@ EXPECTED_TOOLS = {
     "calculate_dcf", "calculate_valuation", "compare_competitors",
     "analyze_financial_health", "analyze_risks", "run_scenario_analysis",
     "explain_valuation", "get_valuation_report",
+    "submit_financial_data", "calculate_valuation_from_data",
 }
 pytestmark = pytest.mark.anyio
 
@@ -153,7 +154,7 @@ def test_main_refuses_to_start_unsafe(monkeypatch):
 
 # ---- remote transport over real HTTP ----
 
-async def test_http_lists_all_11_tools(http_base):
+async def test_http_lists_all_tools(http_base):
     async with _session(http_base) as s:
         tools = {t.name for t in (await s.list_tools()).tools}
     assert EXPECTED_TOOLS <= tools, tools
@@ -216,6 +217,34 @@ async def test_http_every_tool_traceable(http_base):
 
         got = await call("get_valuation_report", {"report_id": rep["report_id"]})
         assert got["company"]["ticker"] == "AUR"           # roundtrip traceable
+
+        # agent-supplied-data workflow tools (same envelope as REST from-data)
+        envelope = json.dumps({
+            "ticker": "ZZZX",
+            "periods": [{"period_end": "2025-12-31", "period_start": "2025-01-01",
+                         "facts": [{"concept": c, "value": v,
+                                    "period_end": "2025-12-31",
+                                    "period_start": "2025-01-01"}
+                                   for c, v in {
+                                       "revenue": 1000.0, "gross_profit": 750.0,
+                                       "ebit": 150.0, "net_income": 90.0,
+                                       "depreciation_amortization": 50.0,
+                                       "capex": 60.0, "total_assets": 900.0,
+                                       "total_liabilities": 300.0, "equity": 600.0,
+                                       "cash": 100.0, "total_debt": 300.0,
+                                       "operating_cash_flow": 120.0,
+                                       "eps_diluted": 0.9,
+                                       "shares_outstanding": 100.0,
+                                       "dps": 0.9}.items()]}],
+             "market": {"price": 20.0, "as_of": "2026-01-15",
+                        "shares_outstanding": 100.0, "beta": 1.1},
+             "risk_free_rate": 0.043})
+        sub = await call("submit_financial_data", {"data": envelope})
+        assert sub["valid"] is True and sub["company"]["ticker"] == "ZZZX"
+        val = await call("calculate_valuation_from_data", {"data": envelope})
+        assert val["company"]["ticker"] == "ZZZX" and len(val["models"]) == 9
+        assert val["report_id"] and val["data_quality"]["sources"][0][
+            "provider"].startswith("agent:")               # traceable, no provider
 
 
 async def test_http_two_sessions_do_not_conflict(http_base):

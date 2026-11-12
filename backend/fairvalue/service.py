@@ -356,3 +356,21 @@ def search_companies(query: str, *, demo: bool = False) -> list[CompanyProfile]:
     if not query.strip():
         return []
     return get_provider(demo=demo).search_company(query)
+
+
+def run_valuation_from_data(
+    data, opts: ValuationOptions | None = None
+) -> ValuationReport:
+    """Valuation from agent-supplied data — the agent retrieves, we validate
+    and calculate. No external provider is touched (SEC/FRED/Stooq-independent);
+    the model pipeline below is the exact same one provider data flows through.
+
+    Caller/submission assumptions win over defaults: explicit ``opts.erp``
+    overrides the submission's ``erp``; ``opts.wacc`` overrides CAPM.
+    """
+    from fairvalue.data.static import StaticProvider
+
+    opts = opts or ValuationOptions()
+    if opts.erp is None and data.erp is not None:
+        opts = opts.model_copy(update={"erp": data.erp})
+    return run_valuation(StaticProvider(data), data.ticker, opts)

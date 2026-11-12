@@ -95,7 +95,7 @@ async def test_audit_http_requires_bearer_token():
         # correct token -> session works
         async with _session(port, token=AUDIT_TOKEN) as s:
             tools = {t.name for t in (await s.list_tools()).tools}
-            assert len(tools) == 11
+            assert len(tools) == 13
 
 
 async def test_audit_http_valuation_matches_stdio():

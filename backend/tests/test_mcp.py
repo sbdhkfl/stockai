@@ -1,4 +1,4 @@
-"""MCP server tests: the 11 fixed tools, exercised through their plain
+"""MCP server tests: the fixed tools, exercised through their plain
 functions with the demo provider (same service layer as the REST API)."""
 import json
 

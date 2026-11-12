@@ -14,7 +14,7 @@ cd backend
 pip install -r requirements.txt
 python -m pytest                             # full suite; live-SEC tests skip offline
 python -m uvicorn api.main:app --reload      # REST API on :8000 (OpenAPI at /docs)
-python -m fairvalue.mcp_server               # MCP server (stdio, 11 tools)
+python -m fairvalue.mcp_server               # MCP server (stdio, 13 tools)
 python -m fairvalue.mcp_http                 # MCP over Streamable HTTP (:8001/mcp, bearer token)
 python -m fairvalue.cli search AAPL          # CLI (also installed as `fairvalue` via pip install -e .)
 ```
@@ -24,6 +24,10 @@ python -m fairvalue.cli search AAPL          # CLI (also installed as `fairvalue
 - **Auth**: set `FAIRVALUE_API_KEY` to require `X-API-Key` on `/v1/*`.
 - **SEC data** comes from live EDGAR; demo mode (`--demo` / `demo=true`) is clearly
   labeled illustrative and never mixed with real facts.
+- **Agent-supplied data**: any MCP agent can submit structured financials for
+  *any* ticker (no allowlist) — validated, then valued with zero provider calls
+  (`POST /v1/valuation/from-data`, MCP `submit_financial_data` →
+  `calculate_valuation_from_data`; see [docs/AGENT_DATA.md](docs/AGENT_DATA.md)).
 
 ## Dashboard
 
@@ -48,6 +52,7 @@ Every valuation explains *what* was calculated, *how*, with *which data*,
 | [docs/TESTING.md](docs/TESTING.md) | Test suite map + quality-gate status |
 | [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md) | Connecting Claude Desktop, VS Code, OpenCode, ChatGPT |
 | [docs/MCP_DEPLOYMENT.md](docs/MCP_DEPLOYMENT.md) | Secure HTTPS deployment of the remote MCP endpoint |
+| [docs/AGENT_DATA.md](docs/AGENT_DATA.md) | Agent-supplied financial data: envelope, provenance, validation, workflow |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Known limitations, honest inventory |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting & design notes |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Binding architecture & shared contracts |
