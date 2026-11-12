@@ -134,8 +134,8 @@ Status values: `todo` ┬╖ `in-progress` ┬╖ `in-review` ┬╖ `done` ┬�
 | Canonical engine surface: `calculate(iv, *Assumptions) -> ModelResult` per model, `reconcile(list[ModelResult]) -> Reconciliation` (family-weighted), `compute_risks`/`run_scenarios` in `analysis/` | Lead + Deep AI Code | done | Deep AI Code rebased its audit suite onto this surface and committed (`9b1e329`); superseded `run_model`-era tests removed with equivalent hand-derived coverage in `test_models_audit.py` |
 | Real-company E2E: 3 industries via live SEC EDGAR (tech/financial/consumer), suitable-vs-rejected models, scenarios, reconciliation, provenance | Lead Architect | in-progress | `test_e2e_parity.py::test_live_sec_end_to_end` covers AAPL only — extending to a financial (JPM) + consumer (WMT) issuer with independent statement checks |
 | REST app, MCP server (11 tools), `skill/SKILL.md` | Deep AI Code | done (in-review) | committed `9b1e329`; Lead wires `backend/api/main.py` shim + OpenAPI verification |
-| SDK / CLI | Deep AI Code | todo | claim here before starting |
-| Tag-mapping spot-check vs 2 more real 10-Ks | Deep AI Code | todo | Phase 2 carry-over |
+| SDK / CLI | Deep AI Code | done (in-review) | `fairvalue/sdk.py` (13 tests vs real uvicorn server; auth, typed errors) and `fairvalue/cli.py` (12 tests; search/company/statements/valuation/health/risks/scenarios/explain/report; engine or --api-url mode). Commit 69fa3c1 |
+| Tag-mapping spot-check vs 2 more real 10-Ks | Deep AI Code | in-review | Done for 3 more issuers (JPM/XOM/KO, 11 tests): mapping + normalization + honest missing-field reporting; XOM lacks canonical ebit in latest FY (recorded); KO lacks gross_profit/total_debt (recorded); JPM share units verified. Carry-over closed pending Lead review |
 | Dashboard, Docker/CI, final 13-point report | Lead Architect | todo | |
 
 ### Disagreements log (new)
@@ -169,3 +169,17 @@ Status values: `todo` ┬╖ `in-progress` ┬╖ `in-review` ┬╖ `done` ┬�
 | **Independent audit: calcs + data quality** | Deep AI Code | `docs/VALIDATION_REPORT.md` |
 
 **Integration rules:** new components call the existing engine/REST contracts — no duplicate valuation logic, no fabricated data. Lead integrates each deliverable as it lands and re-runs the full suite before merge.
+
+
+## Consolidation & verification round (Deep AI Code)
+
+- OpenCode performed the migration per `docs/WORKSPACE_MIGRATION.md` (merge `bd0f913`);
+  my branch `quant/sprint2-sdk-cli-db` is fully contained in `lead/integration` — verified
+  with `git merge-base --is-ancestor`.
+- Post-migration verification battery executed and committed (`d902ab6`): 151/151 tests;
+  live MCP stdio client tests (5) exercising Lead's ProviderError + wacc fixes over the
+  real transport; extra-issuer validation (JPM/XOM/KO) added with honest gap reporting;
+  dashboard `next build` verified in canonical.
+- Worktree `stockai-fv-quant` registration removed after verification passed.
+- Remaining (Lead-owned): API persistence wiring (db/ exists, not yet wired into run_valuation
+  persistence path), CI/Docker, security review, dashboard report-history once persistence is wired.

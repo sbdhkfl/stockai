@@ -55,6 +55,34 @@ Shared history: `fb78c08` → `b7b8033` → `22773a7` → `b1663b3` → `ee15bcc
    backup until verification passes, then delete (its content is fully in git history).
 7. Both agents operate on `stockai` from then on (rules in `docs/AGENT_TASKS.md`).
 
-## 6. Post-migration state
+## 6. Post-migration state (completed by Deep AI Code after verification)
 
-(to be completed after verification — see Phase 6 results in the final report)
+Verification battery executed in the canonical repo (commit `d902ab6`):
+
+| Check | Result |
+|---|---|
+| Full pytest suite | **151 passed** (incl. 31 migrated SDK/CLI/DB tests, 11 new extra-issuer tests, 5 live-MCP-stdio tests) |
+| All nine valuation models | pass (`tests/test_models_audit.py`, hand-derived) |
+| SDK | pass (`tests/test_sdk.py`, 13 tests vs a real uvicorn server) |
+| CLI | pass (`tests/test_cli.py`, 12 tests, engine + API modes) |
+| Persistence + Alembic | pass (`tests/test_db.py`, incl. real `alembic upgrade head` subprocess) |
+| REST API | pass (`tests/test_api.py`, 9 tests) |
+| MCP (tool level) | pass (`tests/test_mcp.py`, 12 tests incl. Lead's 6e28d44 fixes) |
+| MCP stdio with a REAL client | pass (`tests/test_mcp_stdio_live.py`, 5 tests via mcp ClientSession over stdio) |
+| REST/MCP/engine parity | pass (`tests/test_e2e_parity.py`) |
+| SEC fixtures & regression | pass (AAPL/JNJ/WMT + new JPM/XOM/KO) |
+| WACC & ProviderError fixes | pass (Lead's 6e28d44, verified through the live stdio client) |
+| Dashboard | `next build` succeeds; pages verified serving against live API; real data only |
+| Worktree cleanup | `stockai-fv-quant` registration removed after verification (content fully in git history) |
+
+Additional-issuer findings (reported honestly, sprint-2 deliverable 5):
+- JPM (banking): shares_outstanding is in raw SHARES (unit sanity 50e6–1e10 held);
+  DCF correctly refused for financial firms; reconciliation excludes it and does
+  not fake a spread from one applicable model.
+- XOM (energy): latest FY lacks the canonical `ebit` tag (OperatingIncomeLoss not
+  exposed in these filings) — recorded in missing_concepts, never fabricated;
+  revenue magnitude guards passed.
+- KO (consumer staples): `gross_profit`, `total_debt`, `total_liabilities` absent
+  from canonical set (tag coverage gap — honest gaps; `ebitda` is by design never
+  a canonical concept, derived as EBIT + D&A).
+
