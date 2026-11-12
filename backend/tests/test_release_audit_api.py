@@ -23,15 +23,13 @@ def client():
 def test_persistence_wired_via_env(tmp_path, monkeypatch, client):
     """FAIRVALUE_DB_URL set -> /v1/.../valuation persists; report survives a
     fresh server (in-memory store empty) thanks to the DB."""
-    import importlib
     db_file = tmp_path / "audit.db"
     monkeypatch.setenv("FAIRVALUE_DB_URL", f"sqlite:///{db_file.as_posix()}")
+    # _db_session() reads the env per request (cached by URL) — no module reload
+    # needed (and reload under a live test server was a flake source: removed).
     import fairvalue.api.app as app_mod
-    importlib.reload(app_mod)  # pick up env at import-time wiring
-    from fairvalue.db.models import Base
-    from fairvalue.db.session import get_engine
-    Base.metadata.create_all(get_engine())
-    c = TestClient(app_mod.app)
+    app_mod._db_cache.update({"url": None, "session_factory": None})
+    c = TestClient(app)
     r = c.get("/v1/companies/AUR/valuation", params={"demo": "true"})
     assert r.status_code == 200
     rid = r.json()["report_id"]
@@ -44,19 +42,17 @@ def test_persistence_wired_via_env(tmp_path, monkeypatch, client):
 
 
 def test_rate_limit_enforced_when_configured(monkeypatch):
-    monkeypatch.setenv("FAIRVALUE_RATE_LIMIT", "3")
-    monkeypatch.setenv("FAIRVALUE_RATE_WINDOW_S", "60")
-    import importlib
+    # middleware reads module globals at call time -> patch, don't reload
     import fairvalue.api.app as app_mod
-    importlib.reload(app_mod)
-    c = TestClient(app_mod.app)
+    monkeypatch.setattr(app_mod, "RATE_LIMIT", 3)
+    monkeypatch.setattr(app_mod, "RATE_WINDOW_S", 60.0)
+    app_mod._RATE_WINDOW.clear()
+    c = TestClient(app)
     codes = [c.get("/v1/companies/search", params={"q": "a", "demo": "true"}).status_code
              for _ in range(5)]
     assert codes[:3] == [200, 200, 200]
     assert codes[3] == 429 and codes[4] == 429
-    monkeypatch.delenv("FAIRVALUE_RATE_LIMIT")
-    monkeypatch.delenv("FAIRVALUE_RATE_WINDOW_S")
-    importlib.reload(app_mod)
+    app_mod._RATE_WINDOW.clear()
 
 
 def test_scenarios_unknown_ticker_error_shape(client):
