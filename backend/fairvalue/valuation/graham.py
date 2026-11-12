@@ -36,7 +36,11 @@ def calculate(iv: ValuationInputs, a: GrahamAssumptions) -> ModelResult:
             )
         g, g_basis = min(max(cagr, 0.0), 0.15), "historical EPS CAGR (floored at 0, capped at 15%)"
 
-    value = iv.eps * (8.5 + 2 * g)
+    # Canonical Graham formula: V = EPS x (8.5 + 2g) with g in PERCENTAGE POINTS
+    # (e.g. 5% growth -> g = 5 -> multiplier 18.5). Feeding the decimal fraction
+    # directly (EPS x 8.6 for 5% growth) understates value ~2x; audit-caught.
+    g_points = min(15.0, max(0.0, g * 100.0))
+    value = iv.eps * (8.5 + 2 * g_points)
     steps = [
         f"V = EPS {iv.eps:.2f} × (8.5 + 2 × g {g:.1%} [{g_basis}]) = {value:,.2f}/share",
     ]
@@ -56,7 +60,7 @@ def calculate(iv: ValuationInputs, a: GrahamAssumptions) -> ModelResult:
             )
         else:
             steps.append(f"Defensive screen: current assets {ca:,.0f} ≥ 2× current liabilities {cl:,.0f} ✓")
-    if g > 0.10:
+    if g_points > 10.0:
         warnings.append(f"growth {g:.0%} is aggressive for the Graham formula — value scales directly with 2g")
     if iv.price:
         gap = (value - iv.price) / iv.price

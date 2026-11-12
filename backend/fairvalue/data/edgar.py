@@ -223,7 +223,7 @@ def _unit_entries(taxonomy_facts: dict, tag: str, units: tuple[str, ...]) -> lis
         for unit in units:
             out.extend(node.get("units", {}).get(unit, []))
         return out
-    raise ValueError(f"unrecognized XBRL node shape for {taxonomy}:{tag}: {type(node).__name__}")
+    raise ValueError(f"unrecognized XBRL node shape for tag {tag}: {type(node).__name__}")
 
 
 def _merge_debt_parts(parts: dict, locator: str, provider: str):
