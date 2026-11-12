@@ -144,3 +144,28 @@ Status values: `todo` ┬╖ `in-progress` ┬╖ `in-review` ┬╖ `done` ┬�
 | 2026-11-11 | Engine adapter API: Deep AI Code's `run_model` vs Lead's `calculate` surface | Lead's `calculate` surface is canonical (service/explain/report layers were built on it); Deep AI Code rebased tests onto it and preserved hand-derived expectations. Both parties' coverage retained |
 | 2026-11-11 | `docs/AGENT_TASKS.md` board (111 lines) deleted and replaced by a 17-line sprint log in `ee15bcc` | Board restored from `b1663b3` + sprint log re-appended; ledger is append-only for both agents from now on |
 | 2026-11-11 | Graham formula unit bug (decimal vs percentage points) found by Deep AI Code's audit | Fixed with regression test; credit recorded in defect log above |
+
+## Sprint 2 — parallel finalization (worktree isolation ACTIVE)
+
+**Worktrees (never share a working directory):**
+- OpenCode (Lead): `C:\Users\sbdhk\Downloads\stockai` @ `lead/integration`
+- Deep AI Code: `C:\Users\sbdhk\Downloads\stockai-fv-quant` @ `quant/sprint2-sdk-cli-db` (branched from `13cc6e5`)
+- Lead owns final integration: Deep AI Code delivers commits on its branch; Lead reviews, verifies, merges. **No unverified merges.**
+
+**Exclusive file/feature ownership:**
+
+| Area | Owner | Files / notes |
+|---|---|---|
+| Core engine, SEC data layer, service/explain, existing tests | OpenCode | `fairvalue/{core,data,analysis,valuation,service.py,explain.py}`, `backend/tests/*` (existing) |
+| REST API verification, auth/rate-limit/error review | OpenCode | `fairvalue/api/app.py`, `backend/api/main.py` |
+| MCP server + stdio verification | OpenCode | `fairvalue/mcp_server.py`, `tests/test_mcp.py` |
+| Agent Skill | OpenCode | `skill/SKILL.md` |
+| Task board, architecture, README/release docs, Docker/CI | OpenCode | `docs/AGENT_TASKS.md` (append-only for both), `README.md`, `.github/` |
+| **Python SDK + examples** | Deep AI Code | `fairvalue/sdk.py`, `tests/test_sdk.py`, `docs/SDK.md` |
+| **CLI (lookup, valuation, analysis)** | Deep AI Code | `fairvalue/cli.py`, `tests/test_cli.py` |
+| **Report persistence (SQLAlchemy/Alembic)** | Deep AI Code | `fairvalue/db*`, `alembic/`, must persist provenance + assumptions |
+| **Next.js dashboard (consumes REST only)** | Deep AI Code | `dashboard/` |
+| **Additional SEC issuer validation** | Deep AI Code | `tests/test_edgar_*.py` (new files only) |
+| **Independent audit: calcs + data quality** | Deep AI Code | `docs/VALIDATION_REPORT.md` |
+
+**Integration rules:** new components call the existing engine/REST contracts — no duplicate valuation logic, no fabricated data. Lead integrates each deliverable as it lands and re-runs the full suite before merge.
