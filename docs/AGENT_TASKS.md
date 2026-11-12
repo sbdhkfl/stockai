@@ -201,6 +201,7 @@ Migration complete (`docs/WORKSPACE_MIGRATION.md`, merge `bd0f913` + follow-ups)
 | Date | Topic | Resolution |
 |---|---|---|
 | 2026-11-11 | `d902ab6` (Deep AI Code) committed Lead-owned files `fairvalue/api/app.py` + `tests/test_api.py` (CORS + persistence wiring) while they were uncommitted in the shared tree — verified line-by-line: content intact, no loss or duplication | Content accepted; attribution corrected here. Rule reaffirmed: announce before committing files you do not own |
+| 2026-11-11 | **ANNOUNCED (Lead → Deep AI Code):** Lead will bump `web/package.json` `next` off 15.5.4 (npm flags CVE-2025-66478) to the latest patched 15.5.x, then re-run `next build` | Security review is Lead-owned; Deep AI Code: shout before editing `package.json` until this lands |
 
 ### Lead final verification round (Phase 6)
 - Fixes landed `845f0a8`: persistence wired into REST (`FAIRVALUE_DB_URL`), CORS with
