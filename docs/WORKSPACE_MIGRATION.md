@@ -86,3 +86,19 @@ Additional-issuer findings (reported honestly, sprint-2 deliverable 5):
   from canonical set (tag coverage gap — honest gaps; `ebitda` is by design never
   a canonical concept, derived as EBIT + D&A).
 
+### Lead final addendum (2026-11-11, after Phase 6 re-verification)
+
+| Check | Result |
+|---|---|
+| Full pytest suite | **154 passed, exit 0** (`--collect-only`: 154) |
+| Live SEC valuations, 3 industries | AAPL (tech) 6/9 models · JPM (bank) DCF refused by policy · WMT (retail) 5/9 — all `illustrative=False` |
+| REST/MCP parity (live) | WMT identical via REST and MCP stdio (recon base 32.21) |
+| Persistence | `FAIRVALUE_DB_URL` wired into REST (`845f0a8`); reports survived an in-memory wipe; dashboard "Load report history" shows them |
+| CORS | explicit-origin middleware; dashboard calls API with 0 console errors |
+| SEC data fix | `shares_outstanding` falls back to us-gaap counts when dei cover-page tag is stale (AUR multi-class gap) — `845f0a8` |
+| Security review | constant-time API key compare, bounded rate-limit map, 422 in ApiError contract, `company()` ProviderError→502 — `3b822e4`; next bumped 15.5.4→15.5.29 (CVE-2025-66478) — `8efd145` |
+| CI | `.github/workflows/ci.yml`: backend pytest + dashboard `next build` (both verified locally); ruff/mypy deferred (86 pre-existing lint findings, documented) |
+| Backup folder | `stockai-fv-quant`: zero unique files (path-diff + git audit), worktree deregistered, files removed; one empty dir may linger while a process cwd points into it |
+
+Final state: HEAD `8efd145` on `lead/integration`, working tree clean, no git remote (local-only repo), 19 commits, single project directory `C:\Users\sbdhk\Downloads\stockai`.
+
