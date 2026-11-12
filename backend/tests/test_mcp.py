@@ -84,3 +84,26 @@ def test_get_valuation_report_roundtrip(demo):
 def test_get_valuation_report_unknown_id():
     out = json.loads(srv.get_valuation_report("nope"))
     assert out["error"]["code"] == "not_found"
+
+
+def test_unknown_ticker_returns_structured_error_not_crash():
+    # every tool honors the {"error": {code, message}} contract (no opaque
+    # MCP-level crash, no fabricated result)
+    for fn, args in (
+        (srv.calculate_valuation, {"ticker": "NOSUCHTICKER", "demo": True}),
+        (srv.calculate_dcf, {"ticker": "NOSUCHTICKER", "demo": True}),
+        (srv.analyze_risks, {"ticker": "NOSUCHTICKER", "demo": True}),
+        (srv.get_financial_metrics, {"ticker": "NOSUCHTICKER", "demo": True}),
+        (srv.explain_valuation, {"ticker": "NOSUCHTICKER", "demo": True}),
+    ):
+        out = json.loads(fn(**args))
+        assert out["error"]["code"] == "company_not_found", (fn.__name__, out)
+
+
+def test_calculate_dcf_honors_explicit_wacc():
+    # regression: the wacc argument used to be silently dropped (dead opts)
+    lo = json.loads(srv.calculate_dcf("AUR", wacc=0.05, demo=True))
+    hi = json.loads(srv.calculate_dcf("AUR", wacc=0.15, demo=True))
+    assert lo["assumptions"]["wacc"] == 0.05
+    assert hi["assumptions"]["wacc"] == 0.15
+    assert lo["value_per_share"] > hi["value_per_share"]  # higher discount -> lower value

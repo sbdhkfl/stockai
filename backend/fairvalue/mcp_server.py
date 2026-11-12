@@ -45,9 +45,10 @@ def _d(model: Any) -> str:
 
 
 def _run(ticker: str, *, demo: bool = False, price: float | None = None,
-         peers: list[str] | None = None, models: list[str] | None = None):
+         peers: list[str] | None = None, models: list[str] | None = None,
+         wacc: float | None = None):
     opts = ValuationOptions(demo=demo, price=price, peer_tickers=peers or [],
-                            models=models)
+                            models=models, wacc=wacc)
     report = run_valuation(get_provider(demo=demo), ticker, opts)
     if report.report_id is None:
         import uuid
@@ -58,13 +59,18 @@ def _run(ticker: str, *, demo: bool = False, price: float | None = None,
 
 # ---- tools (plain functions; FastMCP decorators expose them) ----
 
+def _e(exc: ProviderError) -> str:
+    """Structured error payload — the documented contract for every tool."""
+    return json.dumps({"error": {"code": exc.code, "message": exc.message}})
+
+
 @mcp.tool()
 def search_company(query: str, demo: bool = False) -> str:
     """Search companies by name or ticker. Returns CompanyProfile JSON list."""
     try:
         return _d(search_companies(query, demo=demo))
     except ProviderError as exc:
-        return json.dumps({"error": {"code": exc.code, "message": exc.message}})
+        return _e(exc)
 
 
 @mcp.tool()
@@ -82,8 +88,10 @@ def get_financial_statements(ticker: str, demo: bool = False) -> str:
 def get_financial_metrics(ticker: str, demo: bool = False) -> str:
     """Financial-health metrics and current market multiples."""
     from fairvalue.analysis import compute_health, compute_multiples
-    opts = ValuationOptions(demo=demo)
-    loaded = load_inputs(get_provider(demo=demo), ticker, opts)
+    try:
+        loaded = load_inputs(get_provider(demo=demo), ticker, ValuationOptions(demo=demo))
+    except ProviderError as exc:
+        return _e(exc)
     return json.dumps({"health": _d(compute_health(loaded.inputs)),
                        "multiples": _d(compute_multiples(loaded.inputs))})
 
@@ -91,9 +99,11 @@ def get_financial_metrics(ticker: str, demo: bool = False) -> str:
 @mcp.tool()
 def calculate_dcf(ticker: str, wacc: float | None = None, demo: bool = False) -> str:
     """DCF (FCFF) only, with full step-by-step derivation."""
-    opts = ValuationOptions(demo=demo, models=["dcf"],
-                            wacc=wacc if wacc and 0 < wacc < 1 else None)
-    report = _run(ticker, demo=demo, models=["dcf"])
+    try:
+        report = _run(ticker, demo=demo, models=["dcf"],
+                      wacc=wacc if wacc and 0 < wacc < 1 else None)
+    except ProviderError as exc:
+        return _e(exc)
     dcf_result = next((m for m in report.models if m.model == "dcf"), None)
     return _d(dcf_result) if dcf_result else json.dumps({"error": "dcf not applicable"})
 
@@ -104,13 +114,19 @@ def calculate_valuation(ticker: str, demo: bool = False, price: float | None = N
                         models: list[str] | None = None) -> str:
     """Full valuation: all suitable models + reconciliation + analysis +
     scenarios + explanation. The single entry point AI agents should call."""
-    return _d(_run(ticker, demo=demo, price=price, peers=peers, models=models))
+    try:
+        return _d(_run(ticker, demo=demo, price=price, peers=peers, models=models))
+    except ProviderError as exc:
+        return _e(exc)
 
 
 @mcp.tool()
 def compare_competitors(ticker: str, demo: bool = False) -> str:
     """Comparable-company analysis for the ticker (peers from the provider)."""
-    report = _run(ticker, demo=demo, models=["comparables"])
+    try:
+        report = _run(ticker, demo=demo, models=["comparables"])
+    except ProviderError as exc:
+        return _e(exc)
     return _d(next(m for m in report.models if m.model == "comparables"))
 
 
@@ -118,7 +134,10 @@ def compare_competitors(ticker: str, demo: bool = False) -> str:
 def analyze_financial_health(ticker: str, demo: bool = False) -> str:
     """Profitability, liquidity, solvency and efficiency metrics."""
     from fairvalue.analysis import compute_health
-    loaded = load_inputs(get_provider(demo=demo), ticker, ValuationOptions(demo=demo))
+    try:
+        loaded = load_inputs(get_provider(demo=demo), ticker, ValuationOptions(demo=demo))
+    except ProviderError as exc:
+        return _e(exc)
     return _d(compute_health(loaded.inputs))
 
 
@@ -126,7 +145,10 @@ def analyze_financial_health(ticker: str, demo: bool = False) -> str:
 def analyze_risks(ticker: str, demo: bool = False) -> str:
     """Altman Z screen, leverage and cash-flow risk flags with data gaps."""
     from fairvalue.analysis import compute_risks
-    loaded = load_inputs(get_provider(demo=demo), ticker, ValuationOptions(demo=demo))
+    try:
+        loaded = load_inputs(get_provider(demo=demo), ticker, ValuationOptions(demo=demo))
+    except ProviderError as exc:
+        return _e(exc)
     return _d(compute_risks(loaded.inputs))
 
 
@@ -135,8 +157,10 @@ def run_scenario_analysis(ticker: str, demo: bool = False,
                           wacc: float | None = None) -> str:
     """Bear/base/bull DCF scenarios + WACC × terminal-growth sensitivity grid."""
     from fairvalue.analysis import run_scenarios
-    opts = ValuationOptions(demo=demo)
-    loaded = load_inputs(get_provider(demo=demo), ticker, opts)
+    try:
+        loaded = load_inputs(get_provider(demo=demo), ticker, ValuationOptions(demo=demo))
+    except ProviderError as exc:
+        return _e(exc)
     w = wacc if wacc and 0 < wacc < 1 else loaded.rates.get("wacc")
     if w is None:
         return json.dumps({"error": {"code": "assumption_missing",
@@ -147,7 +171,10 @@ def run_scenario_analysis(ticker: str, demo: bool = False,
 @mcp.tool()
 def explain_valuation(ticker: str, demo: bool = False) -> str:
     """Deterministic plain-language explanation of the valuation (no LLM)."""
-    return _d(_run(ticker, demo=demo).explanation)
+    try:
+        return _d(_run(ticker, demo=demo).explanation)
+    except ProviderError as exc:
+        return _e(exc)
 
 
 @mcp.tool()
