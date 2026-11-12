@@ -15,6 +15,8 @@ Endpoints:
 
 Errors: {"error": {"code", "message", "detail"}} (ApiError contract).
 Auth: when FAIRVALUE_API_KEY is set, X-API-Key is required on /v1/*.
+Persistence: when FAIRVALUE_DB_URL is set, reports are stored via
+fairvalue.db (SQLAlchemy) and /v1/reports reads from it; unset = in-memory.
 """
 from __future__ import annotations
 
@@ -46,6 +48,23 @@ app = FastAPI(
     ),
 )
 
+# Browser origins allowed to call the API (the dashboard runs on :3000).
+# Explicit list, never "*": deployments widen it via FAIRVALUE_CORS_ORIGINS.
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        o.strip()
+        for o in os.environ.get(
+            "FAIRVALUE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+        ).split(",")
+        if o.strip()
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
 _REPORTS: dict[str, ValuationReport] = {}
 _RATE_WINDOW: dict[str, list[float]] = {}
 RATE_LIMIT = int(os.environ.get("FAIRVALUE_RATE_LIMIT", "60"))
@@ -60,6 +79,80 @@ def _err(code: str, message: str, detail: Any = None, status: int = 400):
 
 def _provider(demo: bool):
     return get_provider(demo=demo)
+
+
+# ---------------- optional report persistence ----------------
+
+_db_cache: dict[str, Any] = {"url": None, "session_factory": None}
+
+
+def _db_session():
+    """SQLAlchemy session when FAIRVALUE_DB_URL is set, else None.
+
+    Persistence failures never break a valuation request (best-effort with a
+    server-side log line); the in-memory store remains the fallback.
+    """
+    url = os.environ.get("FAIRVALUE_DB_URL")
+    if not url:
+        return None
+    try:
+        if _db_cache["url"] != url:
+            from fairvalue.db.session import create_all, get_engine, make_session
+
+            engine = get_engine(url)
+            create_all(engine)  # shortcut: create_all on first use — real
+            # deployments run `alembic upgrade head` (fairvalue/db/migrations)
+            _db_cache["url"] = url
+            _db_cache["session_factory"] = lambda: make_session(engine)
+        return _db_cache["session_factory"]()
+    except Exception as exc:  # noqa: BLE001 — persistence must never 500 a report
+        print(f"persistence unavailable: {exc}")
+        return None
+
+
+def _persist(report: ValuationReport) -> None:
+    s = _db_session()
+    if s is None:
+        return
+    try:
+        from fairvalue.db.repo import save_report
+
+        save_report(s, report)
+    except Exception as exc:  # noqa: BLE001
+        print(f"report persistence failed for {report.report_id}: {exc}")
+    finally:
+        s.close()
+
+
+def _stored_list() -> list[dict] | None:
+    s = _db_session()
+    if s is None:
+        return None
+    try:
+        from fairvalue.db.repo import list_reports
+
+        return list_reports(s)
+    except Exception as exc:  # noqa: BLE001
+        print(f"report listing failed: {exc}")
+        return None
+    finally:
+        s.close()
+
+
+def _stored_get(report_id: str) -> dict | None:
+    s = _db_session()
+    if s is None:
+        return None
+    try:
+        from fairvalue.db.repo import get_report
+
+        r = get_report(s, report_id)
+        return r.model_dump() if r else None
+    except Exception as exc:  # noqa: BLE001
+        print(f"report retrieval failed for {report_id}: {exc}")
+        return None
+    finally:
+        s.close()
 
 
 # ---------------- auth & rate limiting ----------------
@@ -171,6 +264,7 @@ def valuation(
     if report.report_id is None:
         report = report.model_copy(update={"report_id": f"r-{uuid.uuid4().hex[:12]}"})
     _REPORTS[report.report_id] = report
+    _persist(report)
     return report.model_dump()
 
 
@@ -194,11 +288,16 @@ def explain(ticker: str, demo: bool = False):
     if report.report_id is None:
         report = report.model_copy(update={"report_id": f"r-{uuid.uuid4().hex[:12]}"})
     _REPORTS[report.report_id] = report
+    _persist(report)
     return report.explanation.model_dump()
 
 
 @app.get("/v1/reports")
 def reports():
+    stored = _stored_list()
+    if stored is not None:
+        return [{"report_id": r["report_id"], "company": r["ticker"],
+                 "generated_at": r["generated_at"]} for r in stored]
     return [{"report_id": rid, "company": r.company.ticker,
              "generated_at": r.generated_at.isoformat()}
             for rid, r in sorted(_REPORTS.items(),
@@ -207,6 +306,9 @@ def reports():
 
 @app.get("/v1/reports/{report_id}")
 def report_by_id(report_id: str):
+    stored = _stored_get(report_id)
+    if stored is not None:
+        return stored
     r = _REPORTS.get(report_id)
     if not r:
         return _err("not_found", f"report '{report_id}' not found (reports are "
