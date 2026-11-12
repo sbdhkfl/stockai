@@ -15,6 +15,7 @@ pip install -r requirements.txt
 python -m pytest                             # full suite; live-SEC tests skip offline
 python -m uvicorn api.main:app --reload      # REST API on :8000 (OpenAPI at /docs)
 python -m fairvalue.mcp_server               # MCP server (stdio, 11 tools)
+python -m fairvalue.mcp_http                 # MCP over Streamable HTTP (:8001/mcp, bearer token)
 python -m fairvalue.cli search AAPL          # CLI (also installed as `fairvalue` via pip install -e .)
 ```
 
@@ -45,6 +46,8 @@ Every valuation explains *what* was calculated, *how*, with *which data*,
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Environment variables, safe examples |
 | [docs/API.md](docs/API.md) | REST endpoints, MCP tools, SDK & CLI reference |
 | [docs/TESTING.md](docs/TESTING.md) | Test suite map + quality-gate status |
+| [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md) | Connecting Claude Desktop, VS Code, OpenCode, ChatGPT |
+| [docs/MCP_DEPLOYMENT.md](docs/MCP_DEPLOYMENT.md) | Secure HTTPS deployment of the remote MCP endpoint |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Known limitations, honest inventory |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting & design notes |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Binding architecture & shared contracts |

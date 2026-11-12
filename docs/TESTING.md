@@ -4,7 +4,7 @@
 
 ```bash
 cd backend
-python -m pytest            # 176 tests; exit 0 = green
+python -m pytest            # 187 tests; exit 0 = green
 ```
 
 - Tests use recorded real-filing fixtures (AAPL/JNJ/WMT/JPM/XOM/KO) and the
@@ -22,6 +22,7 @@ python -m pytest            # 176 tests; exit 0 = green
 | `test_edgar_regression.py`, `test_extra_issuers.py` | Real-filing extraction: taxonomy quirks, fiscal calendars, share-count fallbacks, honest missing-concept reporting |
 | `test_api.py`, `test_release_audit_api.py` | REST contract: ApiError shapes, auth, CORS, rate limit, persistence wiring, price honesty |
 | `test_mcp.py`, `test_mcp_stdio_live.py` | MCP tool contract + a **real MCP client over stdio** |
+| `test_mcp_http_live.py` | Remote MCP: real uvicorn + real client over **Streamable HTTP** — auth boundary (401/no token echo), all 11 tools traceable, concurrent-session isolation, stdio↔HTTP parity, unsafe-startup refusals |
 | `test_e2e_parity.py` | Engine vs REST vs MCP identical outputs (live when online) |
 | `test_sdk.py`, `test_cli.py`, `test_db.py` | SDK against a real uvicorn thread; CLI; SQLAlchemy + real `alembic upgrade head` |
 
@@ -29,7 +30,7 @@ python -m pytest            # 176 tests; exit 0 = green
 
 | Gate | Command | Status |
 |---|---|---|
-| Pytest | `python -m pytest` | ✅ 176 passed |
+| Pytest | `python -m pytest` | ✅ 187 passed |
 | Frontend build | `cd web && npm run build` | ✅ passes (Next.js 16) |
 | Dependency vulns (Python) | `pip-audit -r requirements.txt` | ✅ 0 known |
 | Dependency vulns (JS) | `cd web && npm audit` | ✅ 0 known |

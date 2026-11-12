@@ -15,6 +15,16 @@ credentials.
 | `FAIRVALUE_DB_URL` | unset | When set, valuations persist to this database and `/v1/reports` serves history from it. Examples: `sqlite:///./fairvalue.db`, `postgresql+psycopg://user:pass@host/fairvalue`. Unset = in-memory only (nothing written to disk). |
 | `FAIRVALUE_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated browser origins allowed to call the API. Never a wildcard. |
 
+## Remote MCP server (`fairvalue/mcp_http.py`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FAIRVALUE_MCP_TOKEN` | unset | **Required** bearer token for the Streamable HTTP endpoint (`Authorization: Bearer …` or `X-API-Key`). Fallback: `FAIRVALUE_API_KEY`. Compared in constant time; env only — never commit. |
+| `FAIRVALUE_MCP_HOST` | `127.0.0.1` | Bind address. Non-loopback binds require a token (anon mode refuses them). |
+| `FAIRVALUE_MCP_PORT` | `8001` | Listen port; MCP path is `/mcp`, liveness at `/health`. |
+| `FAIRVALUE_MCP_ALLOWED_HOSTS` | unset | Comma-separated `Host` allow-list for DNS-rebinding protection behind a proxy (e.g. `mcp.example.com`). |
+| `FAIRVALUE_MCP_ALLOW_ANON` | unset | `1` = start without a token (loopback development only). |
+
 Example hardened start:
 
 ```bash

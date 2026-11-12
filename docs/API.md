@@ -31,7 +31,23 @@ and limitations — never a bare number.
 comparison). **Rate limit:** per-client, in-memory. **CORS:** explicit origin
 list, no wildcard (see [CONFIGURATION.md](CONFIGURATION.md)).
 
-## MCP server (11 tools, stdio)
+## MCP server (11 tools, two transports)
+
+Same server, same tools, same responses on both transports (enforced by a
+stdio↔HTTP parity test):
+
+| Transport | Start | Endpoint | Auth |
+|---|---|---|---|
+| stdio (local) | `python -m fairvalue.mcp_server` | — | none (local process) |
+| Streamable HTTP (remote) | `python -m fairvalue.mcp_http` | `http://127.0.0.1:8001/mcp` | **required**: `Authorization: Bearer <token>` (or `X-API-Key`), constant-time compare; token from `FAIRVALUE_MCP_TOKEN` (fallback `FAIRVALUE_API_KEY`) |
+
+HTTP extras: `GET /health` (open, liveness only); 401 with
+`{"error": {"code": "unauthorized"}}` otherwise; server refuses to start
+without a token (loopback `FAIRVALUE_MCP_ALLOW_ANON=1` dev escape hatch).
+Multiple concurrent clients get independent MCP sessions. Protocol `2025-11-25`.
+
+Client configs: [MCP_CLIENTS.md](MCP_CLIENTS.md) · HTTPS deployment:
+[MCP_DEPLOYMENT.md](MCP_DEPLOYMENT.md).
 
 `python -m fairvalue.mcp_server` — protocol `2025-11-25`.
 
