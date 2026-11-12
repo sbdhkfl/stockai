@@ -206,6 +206,7 @@ Migration complete (`docs/WORKSPACE_MIGRATION.md`, merge `bd0f913` + follow-ups)
 | 2026-11-12 | **ANNOUNCED (Lead → Deep AI Code):** `test_release_audit_api.py::test_persistence_wired_via_env` exposed a root cause in `fairvalue/db/session.py` (your file): `DEFAULT_URL` snapshot at import time + dead `_engine` cache branch, so `FAIRVALUE_DB_URL` set after import was ignored by `make_session()`. Lead patches `get_engine()` to resolve env at call time with a per-URL cache; `test_db` (explicit engines) unaffected | Fix verified by re-running your audit suite; shout if you disagree with the approach |
 | 2026-11-12 | **ANNOUNCED (Lead → Deep AI Code):** Universal MCP integration — new files only (`fairvalue/mcp_http.py`, `tests/test_mcp_http_live.py`, `docs/MCP_CLIENTS.md`, `docs/MCP_DEPLOYMENT.md`) plus shared docs (README, `docs/API.md`, `docs/CONFIGURATION.md`, `docs/TESTING.md`). Streamable HTTP transport on :8001/mcp reuses `mcp_server.py` unchanged (stdio + 11 tools preserved); bearer-token auth mirrors the REST constant-time pattern | `mcp_server.py` and REST app untouched by design — shout before editing those or the shared docs |
 | 2026-11-12 | **ANNOUNCED (Lead → Deep AI Code):** Agent-supplied data architecture round (user task). Lead builds the integration layer ON TOP of your untracked `fairvalue/agent_data.py` + `tests/test_agent_data.py` (keeping both, additive fields only: `risk_free_rate`/`erp`/`fiscal_period`/`unit`/`accounting_standard`/`missing_concepts`): new `data/static.py` (StaticProvider), `service.run_valuation_from_data`, 2 MCP tools (`submit_financial_data`, `calculate_valuation_from_data`), REST POST `/v1/valuation/from-data`, new `tests/test_from_data_workflow.py`, `docs/AGENT_DATA.md` | Your validation logic stays the source of truth — shout before editing agent_data.py, and commit your two files when ready so we don't diverge |
+| 2026-11-12 | **ANNOUNCED (Lead → Deep AI Code):** Coordination round for the naming contract + 5-ticker verification (user steps). I see your uncommitted `sdk.py::valuation_from_data` and untracked `tests/test_from_data_naming_audit.py` (9/9 green locally) — NOT touching either. My plan: (a) ratify the shipped `from-data` family as THE canonical contract (service `run_valuation_from_data` · REST `POST /v1/valuation/from-data` · MCP `submit_financial_data`/`calculate_valuation_from_data` · SDK `valuation_from_data`), superseding your contract's `run_valuation_from_agent_data`/`/v1/valuation/agent-data`/`submit_and_value_company` — your SDK docstring already says "Canonical naming family: from-data"; (b) add JPM + XOM + strict all-9-model honesty tests to MY `test_from_data_workflow.py` (yours covers AAPL/MSFT/synthetic); (c) document the contract in `docs/AGENT_DATA.md` + README/API/MCP_CLIENTS/TESTING; (d) full suite + commit — **including your two files if still uncommitted at that point**, credited in the message. Shout if you're still editing them | Your files stay yours: I won't modify `sdk.py` or `test_from_data_naming_audit.py`; if you commit them first, even better |
 
 ### Lead final verification round (Phase 6)
 - Fixes landed `845f0a8`: persistence wired into REST (`FAIRVALUE_DB_URL`), CORS with
@@ -307,3 +308,23 @@ Migration plan audit + my portion, implemented and tested (`fairvalue/agent_data
   now traces all 13 tools incl. the two new ones; mypy 50 / ruff 106 (both +2/+14
   documented in TESTING.md, the agent_data.py findings are in your derivation code
   at lines 337/379). No push/publish.
+
+### Lead completion status (naming + 5-ticker coordination round)
+- **Canonical contract ratified** (your `f25ada0` SDK method + my docs table in
+  `docs/AGENT_DATA.md`): service `run_valuation_from_data` · REST
+  `POST /v1/valuation/from-data` · MCP `submit_financial_data` +
+  `calculate_valuation_from_data` · SDK `valuation_from_data`. Draft names
+  (`run_valuation_from_agent_data`, `/v1/valuation/agent-data`,
+  `submit_and_value_company`) recorded as superseded — never implemented.
+- **Your two files untouched** (committed by you as `f25ada0`, byte-identical to
+  what I tested). I added the missing JPM + XOM coverage to MY
+  `test_from_data_workflow.py`: five-ticker honesty matrix (AAPL/MSFT/JPM/XOM/
+  SYNTH) — 9 models each, applicable→steps / excluded→reason, `agent:*` sources,
+  `provider=agent_supplied` (no demo substitution), bank DCF self-exclusion,
+  plus the same five through the MCP submit→calculate workflow.
+- **Full suite: 243 passed** (224 + your 9 naming-audit + my 10). ruff 125
+  (19 of them in your naming-audit test — `E731` lambda etc., non-gating; I did
+  not edit your file) / mypy 50 (unchanged) / gitleaks history 0.
+- Docs updated: README, `docs/AGENT_DATA.md` (contract table), `docs/API.md`
+  (SDK example), `docs/MCP_CLIENTS.md` (acceptance step 5), `docs/TESTING.md`
+  (243, suite rows, honest gate counts). No push/publish.

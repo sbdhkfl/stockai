@@ -271,3 +271,55 @@ def test_accounting_standard_and_fiscal_period_echoed():
     rep = run_valuation_from_data(data, ValuationOptions())
     assert rep.company.accounting_standard == "IFRS"
     assert rep.inputs.history[-1].facts["revenue"].fiscal_period == "Q3"
+
+
+# ------------- 5-ticker verification: AAPL / MSFT / JPM / XOM / synthetic ---
+# User steps 4/6/7/8: real tickers submitted as synthetic fixtures (the agent
+# supplies the data — FAIRVALUE only validates and calculates), each with a
+# sector that exercises industry rules, all nine models reporting honestly.
+
+FIVE = [
+    ("AAPL", "Technology", "Computers"),
+    ("MSFT", "Technology", "Software"),
+    ("JPM", "Financials", "Banks"),
+    ("XOM", "Energy", "Oil & Gas"),
+    ("SYNTH", "Technology", "Software"),     # purely fictional control
+]
+
+
+@pytest.mark.parametrize("ticker,sector,industry", FIVE)
+def test_five_tickers_value_honestly_with_all_nine_models(ticker, sector, industry):
+    rep = run_valuation_from_data(
+        _company(ticker, sector=sector, industry=industry), ValuationOptions())
+    # right identity, agent provenance, NEVER demo substitution (req 10)
+    assert rep.company.ticker == ticker
+    assert rep.is_illustrative is False
+    assert rep.company.provider == "agent_supplied"
+    assert all(s.provider.startswith("agent:") for s in rep.data_quality.sources)
+    # all nine present; each either runs with steps or carries an explicit reason
+    assert len(rep.models) == 9, [m.model for m in rep.models]
+    applicable = [m for m in rep.models if m.applicable]
+    assert applicable, "no model ran — submission should always support some"
+    for m in rep.models:
+        if m.applicable:
+            assert m.steps, f"{m.model} applicable without steps"
+        else:
+            assert m.excluded_reason, f"{m.model} excluded without a reason"
+    assert rep.reconciliation.low <= rep.reconciliation.base <= rep.reconciliation.high
+    if sector == "Financials":               # industry rule: DCF refuses banks
+        dcf = next(m for m in rep.models if m.model == "dcf")
+        assert not dcf.applicable and "financial" in dcf.excluded_reason.lower()
+
+
+@pytest.mark.parametrize("ticker,sector,industry", FIVE)
+def test_five_tickers_submittable_via_mcp_workflow(ticker, sector, industry):
+    """Any MCP-compatible agent can submit these envelopes end to end."""
+    envelope = _company(ticker, sector=sector, industry=industry).model_dump_json()
+    v = json.loads(srv.submit_financial_data(envelope))
+    assert v["valid"] is True and v["company"]["ticker"] == ticker
+    out = json.loads(srv.calculate_valuation_from_data(envelope))
+    assert out["company"]["ticker"] == ticker
+    assert len(out["models"]) == 9
+    assert all(("applicable" in m and (m["applicable"] or m["excluded_reason"]))
+               for m in out["models"])
+    assert out["report_id"] in srv._REPORTS

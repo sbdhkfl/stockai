@@ -87,6 +87,10 @@ with FairValueClient(base_url="http://127.0.0.1:8000", api_key="...") as c:
     hits = c.search("apple")
     report = c.valuation("AAPL", price=150.0)   # pydantic-validated responses
     risks = c.risks("AAPL")                     # typed RiskAssessment
+    # agent-supplied data (docs/AGENT_DATA.md): no provider touched server-side
+    from fairvalue.agent_data import AgentSuppliedCompany
+    envelope = AgentSuppliedCompany.model_validate({...})
+    report = c.valuation_from_data(envelope, wacc=0.10)
 ```
 
 Typed errors surface as `SdkError`; auth via `X-API-Key`.

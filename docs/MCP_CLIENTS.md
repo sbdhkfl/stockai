@@ -165,5 +165,9 @@ Whatever the client, the acceptance check is the same:
 3. `get_valuation_report {"report_id": "<id from step 2>"}` returns the same
    report (traceability).
 4. A bad ticker returns `{"error": {"code": "company_not_found"}}`, not a crash.
+5. Agent-supplied workflow: `submit_financial_data` with any ticker envelope
+   returns `valid: true`, and `calculate_valuation_from_data` with the same
+   envelope returns a 9-model report — no provider data involved
+   (envelope reference: [AGENT_DATA.md](AGENT_DATA.md)).
 
 See [API.md](API.md) for the full tool contract.

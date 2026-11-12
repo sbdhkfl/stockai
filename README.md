@@ -27,7 +27,8 @@ python -m fairvalue.cli search AAPL          # CLI (also installed as `fairvalue
 - **Agent-supplied data**: any MCP agent can submit structured financials for
   *any* ticker (no allowlist) — validated, then valued with zero provider calls
   (`POST /v1/valuation/from-data`, MCP `submit_financial_data` →
-  `calculate_valuation_from_data`; see [docs/AGENT_DATA.md](docs/AGENT_DATA.md)).
+  `calculate_valuation_from_data`, SDK `valuation_from_data`; canonical naming
+  contract in [docs/AGENT_DATA.md](docs/AGENT_DATA.md)).
 
 ## Dashboard
 

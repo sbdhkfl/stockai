@@ -30,6 +30,25 @@ dashboard, SDK, CLI) are unchanged.
 Step 1 is optional (a pre-flight); step 2 validates again before calculating.
 The same envelope works over REST: `POST /v1/valuation/from-data`.
 
+## Canonical naming contract
+
+One naming family across every surface — Python `from_data`, URL/doc `from-data`.
+This is the ratified contract; the earlier draft names
+(`run_valuation_from_agent_data`, `POST /v1/valuation/agent-data`,
+`submit_and_value_company`) were **never implemented and are superseded**.
+
+| Surface | Canonical name |
+|---|---|
+| Service (Python) | `fairvalue.service.run_valuation_from_data(data, opts)` |
+| REST | `POST /v1/valuation/from-data` (query: `wacc`, `price`, `models`) |
+| MCP validate step | `submit_financial_data(data)` |
+| MCP value step | `calculate_valuation_from_data(data, wacc?, price?, models?)` |
+| SDK | `FairValueClient.valuation_from_data(data, *, wacc, price, models)` |
+| Documentation | `docs/AGENT_DATA.md` (this file) · `docs/API.md` |
+
+Parity across REST/MCP/SDK on one submission is enforced by
+`tests/test_from_data_naming_audit.py`.
+
 ## Envelope reference
 
 ```jsonc
