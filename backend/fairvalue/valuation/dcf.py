@@ -24,6 +24,16 @@ LIMITATIONS = [
 
 
 def calculate(iv: ValuationInputs, a: DcfAssumptions) -> ModelResult:
+    # Deferred import: analysis.industry pulls the analysis package, which
+    # imports valuation modules — cycle only if done at module load.
+    from fairvalue.analysis.industry import is_financial
+
+    if is_financial(iv.company):
+        return not_applicable(
+            MODEL,
+            "DCF(FCFF) is not suitable for financial firms: interest is operating, "
+            "not a financing cost — use residual income or DDM",
+        )
     if iv.revenue is None or iv.ebit is None:
         return not_applicable(MODEL, "revenue/ebit missing from latest reported period")
     if not iv.shares_outstanding or iv.shares_outstanding <= 0:

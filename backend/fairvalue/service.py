@@ -305,7 +305,16 @@ def run_valuation(provider, ticker: str, opts: ValuationOptions | None = None) -
     health, multiples, risks = apply_industry_rules(iv.company, health, multiples, risks)
 
     scenarios = None
-    if opts.run_scenarios and isinstance(assumptions.get("dcf"), DcfAssumptions):
+    dcf_result = by_name.get("dcf")
+    # Scenarios are DCF-based: skip them whenever the DCF itself is excluded
+    # (financial firm, missing data) — bear/bull numbers for a rejected model
+    # would contradict the reconciliation.
+    if (
+        opts.run_scenarios
+        and isinstance(assumptions.get("dcf"), DcfAssumptions)
+        and dcf_result is not None
+        and dcf_result.applicable
+    ):
         scenarios = run_scenarios(iv, assumptions["dcf"])  # type: ignore[arg-type]
 
     missing = list(dq.missing)
