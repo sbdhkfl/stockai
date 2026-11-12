@@ -204,6 +204,27 @@ def extract_concepts(
         latest = max(shares, key=lambda f: f.filed_at or datetime.min.replace(tzinfo=timezone.utc))
         concept_facts["shares_outstanding"] = [latest]
 
+    if "shares_outstanding" not in concept_facts:
+        # Multi-class issuers stop tagging the dei cover-page count after their
+        # first filings (AUR last reported it in 2021) — fall back to the
+        # us-gaap balance-sheet count, then diluted weighted-average shares.
+        for tag in ("CommonStockSharesOutstanding",
+                    "WeightedAverageNumberOfDilutedSharesOutstanding"):
+            fs, cs = normalize_entries(
+                "shares_outstanding",
+                _unit_entries(_tax("us-gaap"), tag, ("shares",)),
+                provider=provider, locator=f"{locator}#us-gaap:{tag}",
+            )
+            conflicts.extend(cs)
+            if fs:
+                # tie-break: the same 10-K reports prior-year comparatives, so
+                # equal filed_at must prefer the later reporting period
+                latest = max(fs, key=lambda f: (
+                    f.filed_at or datetime.min.replace(tzinfo=timezone.utc),
+                    f.period_end))
+                concept_facts["shares_outstanding"] = [latest]
+                break
+
     return concept_facts, sorted(set(conflicts))
 
 

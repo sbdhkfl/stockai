@@ -68,6 +68,29 @@ def test_dei_cover_page_never_creates_phantom_period():
         assert len(p.facts) >= 2, f"phantom period {p.period_end} with facts {list(p.facts)}"
 
 
+def test_shares_fall_back_to_us_gaap_when_dei_cover_page_gone():
+    """Multi-class issuers stop tagging dei:EntityCommonStockSharesOutstanding
+    early (AUR's last cover-page count is 2021) — the us-gaap balance-sheet
+    count must fill the gap; when nothing exists, shares stay absent."""
+    facts = {
+        "dei": {DEI_SHARES_TAG: {"units": {"shares": []}}},
+        "us-gaap": {"CommonStockSharesOutstanding": {"units": {"shares": [
+            {"end": "2024-12-31", "val": 1733000000, "form": "10-K", "fp": "FY",
+             "filed": "2026-02-11", "accn": "0001828108-25-000028"},
+            {"end": "2025-12-31", "val": 1943000000, "form": "10-K", "fp": "FY",
+             "filed": "2026-02-11", "accn": "0001828108-26-000016"},
+        ]}}},
+    }
+    cf, _ = extract_concepts(facts, locator="x")
+    sh = cf["shares_outstanding"]
+    assert len(sh) == 1 and sh[0].value == 1943000000
+    assert sh[0].accession == "0001828108-26-000016"
+
+    # no share count anywhere -> still absent (never fabricated)
+    cf2, _ = extract_concepts({"dei": {}, "us-gaap": {}}, locator="x")
+    assert "shares_outstanding" not in cf2
+
+
 def test_provenance_preserved_on_real_facts():
     fund = load("AAPL")
     rev = fund.periods[-1].facts["revenue"]
