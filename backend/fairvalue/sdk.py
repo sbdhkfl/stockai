@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from fairvalue.agent_data import AgentSuppliedCompany
 from fairvalue.core.schemas import (
     CompanyProfile,
     Fundamentals,
@@ -141,6 +142,26 @@ class FairValueClient:
             params["models"] = models
         return self._model_or_error(
             self._request("GET", f"/v1/companies/{ticker}/valuation", params=params),
+            ValuationReport)
+
+    def valuation_from_data(self, data: AgentSuppliedCompany, *,
+                            wacc: float | None = None, price: float | None = None,
+                            models: list[str] | None = None) -> ValuationReport:
+        """Full valuation from agent-supplied structured data (docs/AGENT_DATA.md).
+
+        The agent supplies the facts; the API validates them and runs the models.
+        No external provider is contacted server-side; the ticker comes from the
+        envelope (no allowlist). Canonical naming family: from-data."""
+        params: dict[str, Any] = {}
+        if wacc is not None:
+            params["wacc"] = wacc
+        if price is not None:
+            params["price"] = price
+        if models:
+            params["models"] = models
+        return self._model_or_error(
+            self._request("POST", "/v1/valuation/from-data",
+                          params=params, json=data.model_dump(mode="json")),
             ValuationReport)
 
     def scenarios(self, ticker: str, demo: bool = False) -> ScenarioSet:
