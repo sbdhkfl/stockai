@@ -6,7 +6,7 @@ Date: 2026-11-11 · Lead: OpenCode · Controlled migration: `stockai-fv-quant` �
 
 | Item | `stockai` (authoritative) | `stockai-fv-quant` (temporary) |
 |---|---|---|
-| Path | `C:\Users\sbdhk\Downloads\stockai` | `C:\Users\sbdhk\Downloads\stockai-fv-quant` |
+| Path | `~/Downloads/stockai` | `~/Downloads/stockai-fv-quant` |
 | Kind | Primary clone (no remote; local-only repo) | **Git worktree of the same repository** (shares all objects/refs) |
 | Branch | `lead/integration` | `quant/sprint2-sdk-cli-db` |
 | HEAD before migration | `6e28d44` | `99eb14c` |
@@ -100,5 +100,5 @@ Additional-issuer findings (reported honestly, sprint-2 deliverable 5):
 | CI | `.github/workflows/ci.yml`: backend pytest + dashboard `next build` (both verified locally); ruff/mypy deferred (86 pre-existing lint findings, documented) |
 | Backup folder | `stockai-fv-quant`: zero unique files (path-diff + git audit), worktree deregistered, files removed; one empty dir may linger while a process cwd points into it |
 
-Final state: HEAD `8efd145` on `lead/integration`, working tree clean, no git remote (local-only repo), 19 commits, single project directory `C:\Users\sbdhk\Downloads\stockai`.
+Final state: HEAD `8efd145` on `lead/integration`, working tree clean, no git remote (local-only repo), 19 commits, single project directory `~/Downloads/stockai`.
 

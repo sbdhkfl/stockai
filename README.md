@@ -36,3 +36,19 @@ NEXT_PUBLIC_FAIRVALUE_API=http://127.0.0.1:8000 npm run dev   # http://localhost
 
 Every valuation explains *what* was calculated, *how*, with *which data*,
 *which formulas*, and *which assumptions*. See `docs/FINANCIAL_METHODOLOGY.md`.
+
+## Documentation
+
+| Doc | Contents |
+|---|---|
+| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Setup: backend, API, MCP, dashboard, CLI |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Environment variables, safe examples |
+| [docs/API.md](docs/API.md) | REST endpoints, MCP tools, SDK & CLI reference |
+| [docs/TESTING.md](docs/TESTING.md) | Test suite map + quality-gate status |
+| [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Known limitations, honest inventory |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting & design notes |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Binding architecture & shared contracts |
+
+## License
+
+[MIT](LICENSE).

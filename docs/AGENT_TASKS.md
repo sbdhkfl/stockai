@@ -148,8 +148,8 @@ Status values: `todo` ┬╖ `in-progress` ┬╖ `in-review` ┬╖ `done` ┬�
 ## Sprint 2 — parallel finalization (worktree isolation ACTIVE)
 
 **Worktrees (never share a working directory):**
-- OpenCode (Lead): `C:\Users\sbdhk\Downloads\stockai` @ `lead/integration`
-- Deep AI Code: `C:\Users\sbdhk\Downloads\stockai-fv-quant` @ `quant/sprint2-sdk-cli-db` (branched from `13cc6e5`)
+- OpenCode (Lead): `~/Downloads/stockai` @ `lead/integration`
+- Deep AI Code: `~/Downloads/stockai-fv-quant` @ `quant/sprint2-sdk-cli-db` (branched from `13cc6e5`)
 - Lead owns final integration: Deep AI Code delivers commits on its branch; Lead reviews, verifies, merges. **No unverified merges.**
 
 **Exclusive file/feature ownership:**
@@ -188,7 +188,7 @@ Status values: `todo` ┬╖ `in-progress` ┬╖ `in-review` ┬╖ `done` ┬�
 
 Migration complete (`docs/WORKSPACE_MIGRATION.md`, merge `bd0f913` + follow-ups):
 
-- **Single project**: `C:\Users\sbdhk\Downloads\stockai`, branch `lead/integration`.
+- **Single project**: `~/Downloads/stockai`, branch `lead/integration`.
   The `stockai-fv-quant` worktree registration is removed; the folder stays as a
   read-only backup until final sign-off, then may be deleted. Both agents work only
   in `stockai`.
@@ -202,6 +202,8 @@ Migration complete (`docs/WORKSPACE_MIGRATION.md`, merge `bd0f913` + follow-ups)
 |---|---|---|
 | 2026-11-11 | `d902ab6` (Deep AI Code) committed Lead-owned files `fairvalue/api/app.py` + `tests/test_api.py` (CORS + persistence wiring) while they were uncommitted in the shared tree — verified line-by-line: content intact, no loss or duplication | Content accepted; attribution corrected here. Rule reaffirmed: announce before committing files you do not own |
 | 2026-11-11 | **ANNOUNCED (Lead → Deep AI Code):** Lead will bump `web/package.json` `next` off 15.5.4 (npm flags CVE-2025-66478) to the latest patched 15.5.x, then re-run `next build` | Security review is Lead-owned; Deep AI Code: shout before editing `package.json` until this lands |
+| 2026-11-11 | **ANNOUNCED (Lead → Deep AI Code):** release audit found 2 remaining npm advisories (postcss chain inside `next@15.5.29`); Lead attempts `next@16.4.6` (npm's only fix), verifying build + dashboard live; will revert to 15.5.29 if the major bump breaks anything | Release/security prep on `release/github-prep`; any breakage => revert, findings documented instead |
+| 2026-11-12 | **ANNOUNCED (Lead → Deep AI Code):** `test_release_audit_api.py::test_persistence_wired_via_env` exposed a root cause in `fairvalue/db/session.py` (your file): `DEFAULT_URL` snapshot at import time + dead `_engine` cache branch, so `FAIRVALUE_DB_URL` set after import was ignored by `make_session()`. Lead patches `get_engine()` to resolve env at call time with a per-URL cache; `test_db` (explicit engines) unaffected | Fix verified by re-running your audit suite; shout if you disagree with the approach |
 
 ### Lead final verification round (Phase 6)
 - Fixes landed `845f0a8`: persistence wired into REST (`FAIRVALUE_DB_URL`), CORS with
