@@ -1,0 +1,38 @@
+# FAIRVALUE AI CI — backend test suite + dashboard production build.
+# shortcut: ruff/mypy gates deferred until the existing lint debt (86 findings,
+# mostly import ordering) is cleared; pytest is the merge gate until then.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      # live-SEC tests skip themselves when EDGAR is unreachable
+      - run: python -m pytest
+
+  dashboard-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build

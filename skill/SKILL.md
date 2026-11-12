@@ -2,7 +2,7 @@
 name: fairvalue-ai
 description: >
   Transparent, model-independent stock valuation via FAIRVALUE AI. Use when a
-  user asks to value a company, analyze financial health, run bull/base/bull
+  user asks to value a company, analyze financial health, run bear/base/bull
   scenarios, or explain a valuation. Every result carries assumptions,
   provenance, and limitations. Never present estimates as reported facts.
 version: 1.0.0
@@ -50,16 +50,16 @@ language); `data_quality` (missing concepts, restatement conflicts, sources).
 
 | Tool | Purpose |
 |---|---|
-| `search_company(q)` | resolve a name/ticker |
-| `get_financial_statements(t)` | normalized filings + provenance |
-| `get_financial_metrics(t)` | health metrics + current multiples |
-| `calculate_dcf(t, wacc?)` | DCF only, with derivation steps |
-| `compare_competitors(t)` | peer multiples |
-| `analyze_financial_health(t)` | margins, ROE/ROIC, leverage |
-| `analyze_risks(t)` | Altman Z screen, leverage & FCF flags |
-| `run_scenario_analysis(t, wacc?)` | bear/base/bull + sensitivity grid |
-| `explain_valuation(t)` | deterministic narrative |
-| `get_valuation_report(id)` | fetch a stored report |
+| `search_company(query)` | resolve a name/ticker |
+| `get_financial_statements(ticker)` | normalized filings + provenance |
+| `get_financial_metrics(ticker)` | health metrics + current multiples |
+| `calculate_dcf(ticker, wacc?)` | DCF only, with derivation steps |
+| `compare_competitors(ticker)` | peer multiples |
+| `analyze_financial_health(ticker)` | margins, ROE/ROIC, leverage |
+| `analyze_risks(ticker)` | Altman Z screen, leverage & FCF flags |
+| `run_scenario_analysis(ticker, wacc?)` | bear/base/bull + sensitivity grid |
+| `explain_valuation(ticker)` | deterministic narrative |
+| `get_valuation_report(report_id)` | fetch a stored report |
 
 ## Mandatory behavior rules for the calling agent
 

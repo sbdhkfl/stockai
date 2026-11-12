@@ -183,3 +183,36 @@ Status values: `todo` ┬╖ `in-progress` ┬╖ `in-review` ┬╖ `done` ┬�
 - Worktree `stockai-fv-quant` registration removed after verification passed.
 - Remaining (Lead-owned): API persistence wiring (db/ exists, not yet wired into run_valuation
   persistence path), CI/Docker, security review, dashboard report-history once persistence is wired.
+
+## Unified workspace — post-migration rules (Lead, effective 2026-11-11)
+
+Migration complete (`docs/WORKSPACE_MIGRATION.md`, merge `bd0f913` + follow-ups):
+
+- **Single project**: `C:\Users\sbdhk\Downloads\stockai`, branch `lead/integration`.
+  The `stockai-fv-quant` worktree registration is removed; the folder stays as a
+  read-only backup until final sign-off, then may be deleted. Both agents work only
+  in `stockai`.
+- **Ownership table above still applies.** Announce before editing a file you do not
+  own (append a row here first); commit frequently; no unverified merges.
+- **Sprint-2 "never share a working directory" rule is superseded**: there is now
+  exactly one working directory by design — announce-before-edit replaces isolation.
+
+### Incident log (unified round)
+| Date | Topic | Resolution |
+|---|---|---|
+| 2026-11-11 | `d902ab6` (Deep AI Code) committed Lead-owned files `fairvalue/api/app.py` + `tests/test_api.py` (CORS + persistence wiring) while they were uncommitted in the shared tree — verified line-by-line: content intact, no loss or duplication | Content accepted; attribution corrected here. Rule reaffirmed: announce before committing files you do not own |
+
+### Lead final verification round (Phase 6)
+- Fixes landed `845f0a8`: persistence wired into REST (`FAIRVALUE_DB_URL`), CORS with
+  explicit origin list, `shares_outstanding` falls back to us-gaap counts when the dei
+  cover-page tag is stale (multi-class issuers, e.g. AUR) + regression test.
+- Live REST, real SEC data: AAPL 6/9 models applicable, JPM bank-DCF refused
+  (policy live), WMT 5/9 applicable — all `illustrative=False`; reports persisted via
+  `/v1/reports` across a memory wipe.
+- REST/MCP parity live: WMT identical through both surfaces (same models, same
+  values, reconciliation base 32.21).
+- Dashboard: search + company page + "Load report history" against real persistence,
+  0 console errors.
+- CI added: `.github/workflows/ci.yml` (backend pytest + dashboard `next build`).
+  shortcut: ruff/mypy gates deferred until the 86 pre-existing lint findings are
+  cleared — pytest is the merge gate until then.

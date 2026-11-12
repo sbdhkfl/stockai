@@ -20,12 +20,14 @@ fairvalue.db (SQLAlchemy) and /v1/reports reads from it; unset = in-memory.
 """
 from __future__ import annotations
 
+import hmac
 import os
 import time
 import uuid
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from fairvalue.core.schemas import ApiError, DcfAssumptions, ValuationReport
@@ -75,6 +77,14 @@ def _err(code: str, message: str, detail: Any = None, status: int = 400):
     payload = ApiError(error={"code": code, "message": message,
                               "detail": "" if detail is None else str(detail)})
     return JSONResponse(status_code=status, content=payload.model_dump())
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError):
+    # same ApiError contract as every other failure — never a bare FastAPI
+    # {"detail": [...]} body
+    return _err("validation_error", "request parameters failed validation",
+                detail=exc.errors(), status=422)
 
 
 def _provider(demo: bool):
@@ -160,8 +170,9 @@ def _stored_get(report_id: str) -> dict | None:
 @app.middleware("http")
 async def auth_and_rate_limit(request: Request, call_next):
     if request.url.path.startswith("/v1/") and os.environ.get("FAIRVALUE_API_KEY"):
-        key = request.headers.get("X-API-Key")
-        if key != os.environ["FAIRVALUE_API_KEY"]:
+        key = request.headers.get("X-API-Key") or ""
+        # constant-time comparison: no timing oracle on the API key
+        if not hmac.compare_digest(key, os.environ["FAIRVALUE_API_KEY"]):
             return _err("unauthorized", "missing or invalid X-API-Key", status=401)
     client = request.client.host if request.client else "anon"
     now = time.time()
@@ -171,6 +182,10 @@ async def auth_and_rate_limit(request: Request, call_next):
                     status=429)
     hits.append(now)
     _RATE_WINDOW[client] = hits
+    if len(_RATE_WINDOW) > 1024:  # bound memory if source addresses are spoofed
+        for c, ts in list(_RATE_WINDOW.items()):
+            if not any(now - t < RATE_WINDOW_S for t in ts):
+                del _RATE_WINDOW[c]
     return await call_next(request)
 
 
@@ -191,7 +206,10 @@ def companies_search(q: str = Query(..., min_length=1), demo: bool = False):
 
 @app.get("/v1/companies/{ticker}")
 def company(ticker: str, demo: bool = False):
-    found = search_companies(ticker, demo=demo)
+    try:
+        found = search_companies(ticker, demo=demo)
+    except ProviderError as exc:
+        return _err(exc.code, exc.message, status=502)
     exact = [c for c in found if c.ticker.upper() == ticker.upper()]
     if not exact:
         return _err("not_found", f"company '{ticker}' not found", status=404)

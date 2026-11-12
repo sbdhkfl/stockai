@@ -102,3 +102,23 @@ def test_cors_allows_dashboard_origin_only(client):
     assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
     r = client.get("/health", headers={"Origin": "http://evil.example"})
     assert "access-control-allow-origin" not in r.headers
+
+
+def test_validation_error_uses_api_error_contract(client):
+    # 422 must carry the same {"error": {...}} shape as every other failure
+    r = client.get("/v1/companies/AUR/valuation", params={"demo": "true", "price": -5})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["error"]["code"] == "validation_error" and "detail" not in body
+
+
+def test_company_endpoint_maps_provider_error_to_502(client, monkeypatch):
+    from fairvalue.api import app as app_mod
+    from fairvalue.data.base import ProviderError
+
+    def boom(*a, **k):
+        raise ProviderError("sec_unavailable", "EDGAR is down")
+
+    monkeypatch.setattr(app_mod, "search_companies", boom)
+    r = client.get("/v1/companies/AAPL", params={"demo": "false"})
+    assert r.status_code == 502 and r.json()["error"]["code"] == "sec_unavailable"
