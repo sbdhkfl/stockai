@@ -220,3 +220,30 @@ Migration complete (`docs/WORKSPACE_MIGRATION.md`, merge `bd0f913` + follow-ups)
 - CI added: `.github/workflows/ci.yml` (backend pytest + dashboard `next build`).
   shortcut: ruff/mypy gates deferred until the 86 pre-existing lint findings are
   cleared — pytest is the merge gate until then.
+
+## Release-audit round (Deep AI Code, independent)
+
+- Quantitative: 15 fresh hand-derived checks committed (`tests/test_release_audit_quant.py`)
+  — all nine models verified on new cases (dilution factor, dNWC incl. TV-base,
+  RI no-growth-perpetuity branch at g=r, mixed EV/equity comparables, mean
+  precedents, scenario shift directions). No formula/unit bugs found beyond the
+  Graham fix already recorded.
+- SEC: programmatic audit of all six issuers — provenance/accessions present,
+  EBITDA always derived (never a reported tag), restatements recorded, share
+  units sane. Gaps honestly recorded: JPM lacks debt/EBIT concepts (bank), XOM
+  lacks canonical EBIT in latest FY, KO lacks gross_profit/debt tags. Suggested
+  (Lead decision): documented EBIT fallback tag or explicit "not available" note
+  in DCF/EPV exclusions — do NOT silently map pre-tax income as EBIT.
+- API/persistence: DB persistence verified through REST with FAIRVALUE_DB_URL;
+  rate limiting verified (429 after limit); ApiError shapes verified for
+  scenario/statements failures; open access when no API key configured (documented).
+- Market price: live price currently ALWAYS None — Stooq serves a JS anti-bot
+  challenge instead of CSV; provider honestly returns None + warning, no
+  fabrication. Caller price override works. Suggested: staleness warning when
+  price as_of is old, and evaluating alternative free providers (needs Lead approval).
+- Transport: independent HTTP-transport audit (`tests/test_mcp_http_audit.py`) —
+  auth (401 + WWW-Authenticate), 11 tools, byte-identical stdio-vs-HTTP parity.
+- Flake finding: order-dependent failures observed twice today across full-suite
+  runs (test_mcp_http_live once, test_db once; both pass in isolation and on
+  rerun). Cause likely port/timing in live-server tests. Recommend: investigate
+  fixed-vs-ephemeral ports and DB file collisions in test fixtures.
